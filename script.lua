@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790877388
+local SCRIPT_VERSION_TIMESTAMP = 1790877783
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -4025,7 +4025,7 @@ createSlider(FarmTab, "Tempo de Combate por Estágio", 0.5, 10.0, Config.CombatT
     Config.CombatTime = val
 end)
 
-createSlider(FarmTab, "Velocidade de Deslize (Auto Win)", 40, 160, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
+createSlider(FarmTab, "Velocidade de Deslize (Auto Win)", 40, 500, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
     Config.WinGlideSpeed = val
 end)
 
@@ -4198,6 +4198,100 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
         hrp.AssemblyAngularVelocity = Vector3.zero
         hum.WalkSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or 50
         return reached
+    end
+    return false
+end
+
+local function glideAlongPath(waypoints, speed, attackWhileMoving)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 or not waypoints or #waypoints == 0 then return false end
+    
+    local activeSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or Config.WinGlideSpeed or speed or 75
+    if hum then hum.WalkSpeed = activeSpeed end
+    
+    -- No-clip contínuo e anulação de gravidade/inércia em Stepped (elimina vibrações e stutter)
+    local ncConn = RunService.Stepped:Connect(function()
+        if char then
+            for _, part in ipairs(char:GetChildren()) do
+                if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+            end
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+    end)
+    
+    local lastAttackTick = 0
+    local currentWpIndex = 1
+    local totalWps = #waypoints
+    local reachedFinal = false
+    local currentWpStartTime = os.clock()
+    
+    while Config.AutoWin and not Config.AutoEndless and currentWpIndex <= totalWps do
+        local dt = RunService.Heartbeat:Wait()
+        char = LocalPlayer.Character
+        hum = char and char:FindFirstChildOfClass("Humanoid")
+        hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp or not hum or hum.Health <= 0 then break end
+        
+        -- Atualiza activeSpeed dinamicamente caso o jogador altere durante o movimento
+        activeSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or Config.WinGlideSpeed or speed or 75
+        if hum.WalkSpeed ~= activeSpeed then hum.WalkSpeed = activeSpeed end
+        
+        local currentTarget = waypoints[currentWpIndex]
+        local targetPos = typeof(currentTarget) == "CFrame" and currentTarget.Position or currentTarget
+        local currentPos = hrp.Position
+        local toTarget = targetPos - currentPos
+        local distRemaining = toTarget.Magnitude
+        local step = activeSpeed * dt
+        
+        if attackWhileMoving and (os.clock() - lastAttackTick >= 0.05) then
+            lastAttackTick = os.clock()
+            if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+            if RemotePlayerClick then RemotePlayerClick:FireServer() end
+        end
+        
+        local isFinal = (currentWpIndex == totalWps)
+        local arriveThreshold = isFinal and math.max(step * 1.15, 0.4) or math.max(step * 1.6, 9.0)
+        
+        -- Timeout de segurança por waypoint (máximo 6 segundos se ficar travado)
+        local wpTimeout = (os.clock() - currentWpStartTime > 6.0)
+        
+        if distRemaining <= arriveThreshold or wpTimeout then
+            if isFinal then
+                if typeof(currentTarget) == "CFrame" then
+                    hrp.CFrame = currentTarget
+                else
+                    hrp.CFrame = CFrame.new(targetPos)
+                end
+                reachedFinal = true
+                break
+            else
+                currentWpIndex = currentWpIndex + 1
+                currentWpStartTime = os.clock()
+            end
+        else
+            local moveDir = toTarget.Unit
+            local nextPos = currentPos + (moveDir * step)
+            local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
+            if flatDir.Magnitude > 0.05 then
+                local lookRot = CFrame.lookAt(nextPos, nextPos + flatDir)
+                hrp.CFrame = hrp.CFrame:Lerp(lookRot, math.clamp(dt * 15, 0.08, 1.0))
+            else
+                hrp.CFrame = CFrame.new(nextPos)
+            end
+        end
+    end
+    
+    pcall(function() ncConn:Disconnect() end)
+    if hrp and hum and hum.Health > 0 then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hum.WalkSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or 50
+        return reachedFinal
     end
     return false
 end
@@ -4766,6 +4860,109 @@ local function getStagesToFarm(stagesFolder, selectedStage)
     return stagesList
 end
 
+local function collectSelectedStagePad(stage, targetPad, stagesList)
+    if not stage or not targetPad then return false, "nopad" end
+    
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
+    
+    local padTargetCF = targetPad.CFrame + Vector3.new(0, 1.0, 0)
+    local retriesLeft = 2
+    local targetNum = tonumber(string.match(stage.Name, "%d+"))
+    
+    while Config.AutoWin and not Config.AutoEndless do
+        lockPadStationary(targetPad)
+        
+        local initialWinTime = lastWinCollectedTick
+        local initialWinCount = totalWinsCollectedCount
+        local initialLeaderWins = nil
+        pcall(function()
+            local ls = LocalPlayer:FindFirstChild("leaderstats")
+            local w = ls and ls:FindFirstChild("Wins")
+            if w then initialLeaderWins = w.Value end
+        end)
+        
+        local padTouchStart = os.clock()
+        local padCollected = false
+        
+        while Config.AutoWin and not Config.AutoEndless and (os.clock() - padTouchStart < 3.2) do
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
+            
+            hrp.CFrame = padTargetCF
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            if firetouchinterest then
+                firetouchinterest(hrp, targetPad, 0)
+                task.wait(0.02)
+                firetouchinterest(hrp, targetPad, 1)
+                
+                local foot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
+                if foot then
+                    firetouchinterest(foot, targetPad, 0)
+                    task.wait(0.02)
+                    firetouchinterest(foot, targetPad, 1)
+                end
+            end
+            
+            local currentLeaderWins = nil
+            pcall(function()
+                local ls = LocalPlayer:FindFirstChild("leaderstats")
+                local w = ls and ls:FindFirstChild("Wins")
+                if w then currentLeaderWins = w.Value end
+            end)
+            
+            if totalWinsCollectedCount > initialWinCount 
+                or lastWinCollectedTick > initialWinTime 
+                or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins)
+                or (hrp and (hrp.Position - targetPad.Position).Magnitude > 40) then
+                padCollected = true
+                break
+            end
+            task.wait(0.06)
+        end
+        
+        if padCollected then
+            print(string.format("[Auto Win] Pad do estágio selecionado '%s' coletado com sucesso!", tostring(stage.Name)))
+            return true, "ok"
+        end
+        
+        if retriesLeft > 0 then
+            print(string.format("[Auto Win] Pad não coletado em '%s'! Verificando inimigos vivos... (Tentativas restantes: %d)", tostring(stage.Name), retriesLeft))
+            retriesLeft = retriesLeft - 1
+            local stgWithEnemies, stgNum = findStageWithLiveEnemies(stagesList)
+            if stgWithEnemies then
+                print(string.format("[Auto Win] Inimigos vivos encontrados no estágio '%s'! Eliminando...", tostring(stgWithEnemies.Name)))
+                local clearOk, clearReason = clearStageEnemies(stgWithEnemies)
+                if not clearOk and clearReason == "dead" then return false, "dead" end
+            else
+                local t0 = os.clock()
+                while Config.AutoWin and not Config.AutoEndless and (os.clock() - t0 < 1.0) do
+                    if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                    if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                    task.wait(0.05)
+                end
+            end
+            local myChar = LocalPlayer.Character
+            local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if myHrp then
+                myHrp.CFrame = targetPad.CFrame + Vector3.new(0, 1.0, 0)
+                task.wait(0.2)
+            end
+        else
+            print(string.format("[Auto Win] Pad ainda não registrado em '%s' após tentativas! Resetando personagem...", tostring(stage.Name)))
+            resetCharacterAndRecover()
+            return false, "stalled"
+        end
+    end
+    return false, "cancelled"
+end
+
 local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     if not stagesFolder then return end
     local targetNum = nil
@@ -4775,42 +4972,152 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     local stagesList = getStagesToFarm(stagesFolder, selectedStage)
     if #stagesList == 0 then return end
     
-    for i, item in ipairs(stagesList) do
-        if cancelCheck and cancelCheck() then break end
-        if not Config.AutoWin or Config.AutoEndless or isBossActive() then break end
-        
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not char or not hum or hum.Health <= 0 or not hrp then
-            waitForCharacterAlive()
-            task.wait(0.8)
-            break
+    if cancelCheck and cancelCheck() then return end
+    if not Config.AutoWin or Config.AutoEndless or isBossActive() then return end
+    
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not hum or hum.Health <= 0 or not hrp then
+        waitForCharacterAlive()
+        task.wait(0.8)
+        return
+    end
+    
+    -- Se um estágio específico foi selecionado, desliza diretamente até ele parando EXCLUSIVAMENTE em seu pad!
+    if targetNum ~= nil then
+        local targetItem = nil
+        for _, item in ipairs(stagesList) do
+            if item.Num == targetNum then
+                targetItem = item
+                break
+            end
+        end
+        if not targetItem then
+            targetItem = stagesList[#stagesList]
         end
         
-        local isSelectedStage = (targetNum and item.Num == targetNum) or (targetNum == nil and i == #stagesList)
-        local success, reason = farmStage(item.Stage, isSelectedStage, stagesList)
-        
-        char = LocalPlayer.Character
-        hum = char and char:FindFirstChildOfClass("Humanoid")
-        hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not success and (reason == "dead" or reason == "stalled") or not hum or hum.Health <= 0 or not hrp then
-            waitForCharacterAlive()
-            task.wait(0.8)
-            break
+        -- Encontra o índice inicial mais próximo do jogador
+        local startIndex = 1
+        local minDist = math.huge
+        for idx, item in ipairs(stagesList) do
+            local pad = getStageFreePad(item.Stage)
+            local pPos = pad and pad.Position or (item.Stage:FindFirstChildWhichIsA("BasePart", true) and item.Stage:FindFirstChildWhichIsA("BasePart", true).Position)
+            if pPos then
+                local d = (hrp.Position - pPos).Magnitude
+                if d < minDist then
+                    minDist = d
+                    startIndex = idx
+                end
+            end
         end
         
-        if isSelectedStage then
+        -- Monta os waypoints contínuos dos corredores até o estágio selecionado
+        local waypoints = {}
+        local function addWaypoint(wp)
+            if not wp then return end
+            local pos = typeof(wp) == "CFrame" and wp.Position or wp
+            if #waypoints > 0 then
+                local lastPos = typeof(waypoints[#waypoints]) == "CFrame" and waypoints[#waypoints].Position or waypoints[#waypoints]
+                if (pos - lastPos).Magnitude < 3.0 then
+                    return
+                end
+            end
+            table.insert(waypoints, wp)
+        end
+        
+        for idx = startIndex, #stagesList do
+            local item = stagesList[idx]
+            if item.Num < targetItem.Num then
+                local pad = getStageFreePad(item.Stage)
+                local stageY = pad and (pad.Position.Y + 1.2) or (hrp.Position.Y)
+                local cStart, cEnd = getStageCorridorPath(item.Stage, pad)
+                if cStart then
+                    addWaypoint(Vector3.new(cStart.X, stageY, cStart.Z))
+                end
+                if cEnd then
+                    addWaypoint(Vector3.new(cEnd.X, stageY, cEnd.Z))
+                elseif pad then
+                    addWaypoint(Vector3.new(pad.Position.X, stageY, pad.Position.Z))
+                end
+            end
+        end
+        
+        -- Obtém o pad final do estágio selecionado
+        local finalPad = getStageFreePad(targetItem.Stage)
+        if not finalPad then
+            local bp = targetItem.Stage:FindFirstChildWhichIsA("BasePart", true)
+            local pos = bp and bp.Position or targetItem.Stage:GetPivot().Position
+            if LocalPlayer.RequestStreamAroundAsync then
+                pcall(function() LocalPlayer:RequestStreamAroundAsync(pos) end)
+            end
+            task.wait(0.15)
+            finalPad = getStageFreePad(targetItem.Stage)
+        end
+        
+        local finalCF = finalPad and (finalPad.CFrame + Vector3.new(0, 1.0, 0)) or (targetItem.Stage:GetPivot() + Vector3.new(0, 2.0, 0))
+        table.insert(waypoints, finalCF)
+        
+        print(string.format("[Auto Win] Deslizando fluidamente até o estágio selecionado '%s' (%d waypoints)...", tostring(targetItem.Stage.Name), #waypoints))
+        local glideOk = glideAlongPath(waypoints, nil, true)
+        
+        if not glideOk then
+            print("[Auto Win] Deslize interrompido ou personagem reiniciado.")
+            return
+        end
+        
+        -- Chegou exclusivamente no pad do estágio selecionado: Para e coleta!
+        local collectOk = collectSelectedStagePad(targetItem.Stage, finalPad or getStageFreePad(targetItem.Stage), stagesList)
+        if collectOk then
             task.wait(0.3)
             local c = LocalPlayer.Character
             local r = c and c:FindFirstChild("HumanoidRootPart")
-            local pad = getStageFreePad(item.Stage)
+            local pad = finalPad or getStageFreePad(targetItem.Stage)
             if r and pad and (r.Position - pad.Position).Magnitude < 35 then
                 resetCharacterAndRecover()
             else
                 task.wait(0.4)
             end
-            break
+        end
+    else
+        -- Modo 'all': Executa todos os estágios em sequência
+        for i, item in ipairs(stagesList) do
+            if cancelCheck and cancelCheck() then break end
+            if not Config.AutoWin or Config.AutoEndless or isBossActive() then break end
+            
+            char = LocalPlayer.Character
+            hum = char and char:FindFirstChildOfClass("Humanoid")
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not char or not hum or hum.Health <= 0 or not hrp then
+                waitForCharacterAlive()
+                task.wait(0.8)
+                break
+            end
+            
+            local isSelectedStage = (i == #stagesList)
+            local success, reason = farmStage(item.Stage, isSelectedStage, stagesList)
+            
+            char = LocalPlayer.Character
+            hum = char and char:FindFirstChildOfClass("Humanoid")
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not success and (reason == "dead" or reason == "stalled") or not hum or hum.Health <= 0 or not hrp then
+                waitForCharacterAlive()
+                task.wait(0.8)
+                break
+            end
+            
+            if isSelectedStage then
+                task.wait(0.3)
+                local c = LocalPlayer.Character
+                local r = c and c:FindFirstChild("HumanoidRootPart")
+                local pad = getStageFreePad(item.Stage)
+                if r and pad and (r.Position - pad.Position).Magnitude < 35 then
+                    resetCharacterAndRecover()
+                else
+                    task.wait(0.4)
+                end
+                break
+            end
         end
     end
 end
@@ -5184,6 +5491,10 @@ end)
 createSectionHeader(ConfigTab, "🏃 MOVIMENTO & FÍSICA")
 
 createWalkSpeedControl(ConfigTab)
+
+createSlider(ConfigTab, "Velocidade de Deslize (Auto Win)", 40, 500, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
+    Config.WinGlideSpeed = val
+end)
 
 createToggle(ConfigTab, "Pulo Infinito", Config.InfiniteJump, function(val)
     Config.InfiniteJump = val
