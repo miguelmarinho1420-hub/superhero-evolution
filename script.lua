@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790884143
+local SCRIPT_VERSION_TIMESTAMP = 1790884533
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -172,17 +172,21 @@ local Config = {
     AutoReconnect = false,
     AutoSaveSettings = false,
     
-    -- 8. Títulos Automáticos por Modo
-    TitleBossEnabled = false,
-    TitleBoss = "the_immortal",
+    -- 8. Títulos Automáticos por Modo (Título certo para cada atividade)
     TitleTrainEnabled = false,
     TitleTrain = "apocalypse",
-    TitlePvpEnabled = false,
-    TitlePvp = "the_immortal",
     TitleWinEnabled = false,
     TitleWin = "hall_of_famer",
     TitleCoopEnabled = false,
     TitleCoop = "eternity",
+    TitleBossEnabled = false,
+    TitleBoss = "the_immortal",
+    TitleRaidEnabled = false,
+    TitleRaid = "warbringer",
+    TitlePvpEnabled = false,
+    TitlePvp = "the_immortal",
+    TitleEggEnabled = false,
+    TitleEgg = "beast_god",
     
     -- 9. Eventos Especiais
     AutoEnterBoss = false,
@@ -274,6 +278,7 @@ end
 --  CENTROS DAS ARENAS DE CO-OP SEM FIM (MUNDOS 2 A 9)
 -- ══════════════════════════════════════════════════════════════
 local isBossFighting = false
+local isPvpFighting = false
 local previousActivity = nil
 local EndlessToggle = nil
 local TrainToggle = nil
@@ -862,16 +867,20 @@ saveConfig = function()
                 SelectedTeleportWorld = Config.SelectedTeleportWorld,
                 AutoReconnect = Config.AutoReconnect,
                 AutoSaveSettings = Config.AutoSaveSettings,
-                TitleBossEnabled = Config.TitleBossEnabled,
-                TitleBoss = Config.TitleBoss,
                 TitleTrainEnabled = Config.TitleTrainEnabled,
                 TitleTrain = Config.TitleTrain,
-                TitlePvpEnabled = Config.TitlePvpEnabled,
-                TitlePvp = Config.TitlePvp,
                 TitleWinEnabled = Config.TitleWinEnabled,
                 TitleWin = Config.TitleWin,
                 TitleCoopEnabled = Config.TitleCoopEnabled,
                 TitleCoop = Config.TitleCoop,
+                TitleBossEnabled = Config.TitleBossEnabled,
+                TitleBoss = Config.TitleBoss,
+                TitleRaidEnabled = Config.TitleRaidEnabled,
+                TitleRaid = Config.TitleRaid,
+                TitlePvpEnabled = Config.TitlePvpEnabled,
+                TitlePvp = Config.TitlePvp,
+                TitleEggEnabled = Config.TitleEggEnabled,
+                TitleEgg = Config.TitleEgg,
                 AutoEnterBoss = Config.AutoEnterBoss,
                 BossDodge = Config.BossDodge,
                 BossAutoAttack = Config.BossAutoAttack,
@@ -2081,17 +2090,30 @@ equipTitle = function(titleId)
 end
 
 local function getDesiredTitleForCurrentActivity()
-    -- 1. Arena Boss ou Obby / Raid (Prioridade Máxima de Eventos)
+    -- 1. Arena Boss (Prioridade Máxima de Eventos)
     local inBoss = (isBossFighting == true) or (isBossActive and isBossActive())
-    local inRaid = (isRaidActive and isRaidActive()) or (isInsideRaid and isInsideRaid())
-    
-    if inBoss or inRaid then
+    if inBoss then
         if Config.TitleBossEnabled and Config.TitleBoss and Config.TitleBoss ~= "" then
             return Config.TitleBoss
         end
     end
     
-    -- 2. Auto CO-OP / Endless
+    -- 2. Raid / Invasão
+    local inRaid = (isRaidActive and isRaidActive()) or (isInsideRaid and isInsideRaid())
+    if inRaid then
+        if Config.TitleRaidEnabled and Config.TitleRaid and Config.TitleRaid ~= "" then
+            return Config.TitleRaid
+        end
+    end
+    
+    -- 3. PvP (Combate contra Jogadores)
+    if isPvpFighting then
+        if Config.TitlePvpEnabled and Config.TitlePvp and Config.TitlePvp ~= "" then
+            return Config.TitlePvp
+        end
+    end
+    
+    -- 4. Auto CO-OP / Endless
     local inEndless = (isInsideEndless and isInsideEndless()) or (Config.AutoEndless and not inBoss and not inRaid)
     if inEndless then
         if Config.TitleCoopEnabled and Config.TitleCoop and Config.TitleCoop ~= "" then
@@ -2099,15 +2121,23 @@ local function getDesiredTitleForCurrentActivity()
         end
     end
     
-    -- 3. Auto Win / Progressão
+    -- 5. Auto Win / Progressão de Estágios
     if Config.AutoWin and not inBoss and not inRaid and not inEndless then
         if Config.TitleWinEnabled and Config.TitleWin and Config.TitleWin ~= "" then
             return Config.TitleWin
         end
     end
     
-    -- 4. Treino
-    if Config.AutoTrain and not inBoss and not inRaid and not inEndless then
+    -- 6. Chocar Ovos (Auto Egg / Hatch)
+    local isHatching = (Config.AutoHatch or Config.AutoHatchMultiple) and not inBoss and not inRaid and not inEndless and not Config.AutoWin
+    if isHatching then
+        if Config.TitleEggEnabled and Config.TitleEgg and Config.TitleEgg ~= "" then
+            return Config.TitleEgg
+        end
+    end
+    
+    -- 7. Treino (Auto Treino)
+    if Config.AutoTrain and not inBoss and not inRaid and not inEndless and not Config.AutoWin then
         if Config.TitleTrainEnabled and Config.TitleTrain and Config.TitleTrain ~= "" then
             return Config.TitleTrain
         end
@@ -5335,10 +5365,12 @@ end)
 
 createToggle(OvosTab, "Auto Hatch", Config.AutoHatch, function(val)
     Config.AutoHatch = val
+    if autoSyncActiveTitle then autoSyncActiveTitle(true) end
 end)
 
 createToggle(OvosTab, "Auto Open Ovos Múltiplos", Config.AutoHatchMultiple, function(val)
     Config.AutoHatchMultiple = val
+    if autoSyncActiveTitle then autoSyncActiveTitle(true) end
 end)
 
 createToggle(OvosTab, "Chocar Rápido", Config.FastHatch, function(val)
@@ -5623,17 +5655,24 @@ do
     
     updateTitleCardVisual = function()
         pcall(function()
+            local equippedId = currentEquippedTitle
             if RemoteGetTitlesState then
                 local res = RemoteGetTitlesState:InvokeServer()
                 if res and res.Equipped then
-                    for _, item in ipairs(AllTitlesList) do
-                        if item.Id == res.Equipped then
-                            tActiveName.Text = item.Name
-                            return
-                        end
-                    end
-                    tActiveName.Text = tostring(res.Equipped)
+                    equippedId = res.Equipped
+                    currentEquippedTitle = res.Equipped
                 end
+            end
+            if equippedId then
+                for _, item in ipairs(AllTitlesList) do
+                    if item.Id == equippedId then
+                        tActiveName.Text = item.Name
+                        return
+                    end
+                end
+                tActiveName.Text = tostring(equippedId)
+            else
+                tActiveName.Text = "Nenhum / Padrão"
             end
         end)
     end
@@ -5641,58 +5680,80 @@ do
     
     createSectionHeader(TitulosTab, "👑 TÍTULOS AUTOMÁTICOS POR MODO")
     
-    -- 1. Arena Boss e Obby
-    createToggle(TitulosTab, "⚔️ Arena Boss e Obby", Config.TitleBossEnabled, function(val)
-        Config.TitleBossEnabled = val
-        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
-    end)
-    createLabel(TitulosTab, "Título para Arena Boss e Obby")
-    createDropdown(TitulosTab, "", AllTitlesList, Config.TitleBoss, function(id)
-        Config.TitleBoss = id
-        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
-    end)
-    
-    -- 2. Treino
-    createToggle(TitulosTab, "⚡ Treino", Config.TitleTrainEnabled, function(val)
+    -- 1. Treino
+    createToggle(TitulosTab, "⚡ Auto Equipar no Treino", Config.TitleTrainEnabled, function(val)
         Config.TitleTrainEnabled = val
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
-    createLabel(TitulosTab, "Título para Treino")
+    createLabel(TitulosTab, "Título para Treino (Recomendado: Vel. Ataque / Clicks)")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleTrain, function(id)
         Config.TitleTrain = id
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
-    -- 3. PvP
-    createToggle(TitulosTab, "🥊 PvP", Config.TitlePvpEnabled, function(val)
-        Config.TitlePvpEnabled = val
-        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
-    end)
-    createLabel(TitulosTab, "Título para PvP")
-    createDropdown(TitulosTab, "", AllTitlesList, Config.TitlePvp, function(id)
-        Config.TitlePvp = id
-        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
-    end)
-    
-    -- 4. Vitória
-    createToggle(TitulosTab, "🏆 Vitória", Config.TitleWinEnabled, function(val)
+    -- 2. Vitória / Progressão
+    createToggle(TitulosTab, "🏆 Auto Equipar na Vitória", Config.TitleWinEnabled, function(val)
         Config.TitleWinEnabled = val
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
-    createLabel(TitulosTab, "Título para Vitória")
+    createLabel(TitulosTab, "Título para Vitória (Recomendado: +% Vitórias)")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleWin, function(id)
         Config.TitleWin = id
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
-    -- 5. Auto CO-OP
-    createToggle(TitulosTab, "🌀 Auto CO-OP", Config.TitleCoopEnabled, function(val)
+    -- 3. Auto CO-OP (Sem Fim)
+    createToggle(TitulosTab, "🌀 Auto Equipar no CO-OP Sem Fim", Config.TitleCoopEnabled, function(val)
         Config.TitleCoopEnabled = val
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
-    createLabel(TitulosTab, "Título para Auto CO-OP")
+    createLabel(TitulosTab, "Título para CO-OP (Recomendado: +% Tokens)")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleCoop, function(id)
         Config.TitleCoop = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    
+    -- 4. Arena Boss e Obby
+    createToggle(TitulosTab, "⚔️ Auto Equipar no Boss de Arena", Config.TitleBossEnabled, function(val)
+        Config.TitleBossEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    createLabel(TitulosTab, "Título para Boss (Recomendado: +% Dano)")
+    createDropdown(TitulosTab, "", AllTitlesList, Config.TitleBoss, function(id)
+        Config.TitleBoss = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    
+    -- 5. Raid (Invasão)
+    createToggle(TitulosTab, "🛡️ Auto Equipar na Raid", Config.TitleRaidEnabled, function(val)
+        Config.TitleRaidEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    createLabel(TitulosTab, "Título para Raid (Recomendado: +% Tokens)")
+    createDropdown(TitulosTab, "", AllTitlesList, Config.TitleRaid, function(id)
+        Config.TitleRaid = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    
+    -- 6. PvP
+    createToggle(TitulosTab, "🥊 Auto Equipar no PvP", Config.TitlePvpEnabled, function(val)
+        Config.TitlePvpEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    createLabel(TitulosTab, "Título para PvP (Recomendado: +% Dano / Vida)")
+    createDropdown(TitulosTab, "", AllTitlesList, Config.TitlePvp, function(id)
+        Config.TitlePvp = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    
+    -- 7. Chocar Ovos
+    createToggle(TitulosTab, "🥚 Auto Equipar ao Chocar Ovos", Config.TitleEggEnabled, function(val)
+        Config.TitleEggEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+    end)
+    createLabel(TitulosTab, "Título para Chocar Ovos (Recomendado: +% Sorte)")
+    createDropdown(TitulosTab, "", AllTitlesList, Config.TitleEgg, function(id)
+        Config.TitleEgg = id
         if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
 end
@@ -6564,11 +6625,13 @@ spawnThread(function()
     while true do
         pcall(function()
             if not Config.PvpKillAura and not Config.PvpStickToTarget then
+                isPvpFighting = false
                 task.wait(0.2)
                 return
             end
             
             if Config.AutoEndless or isInsideEndless() then
+                isPvpFighting = false
                 task.wait(0.5)
                 return
             end
@@ -6577,6 +6640,7 @@ spawnThread(function()
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             if not char or not hrp or not hum or hum.Health <= 0 then
+                isPvpFighting = false
                 task.wait(0.5)
                 return
             end
@@ -6606,6 +6670,7 @@ spawnThread(function()
                 local tHum = tChar:FindFirstChildOfClass("Humanoid")
                 
                 if tHrp and tHum and tHum.Health > 0 then
+                    isPvpFighting = true
                     if Config.TitlePvpEnabled and equipTitle and Config.TitlePvp then
                         equipTitle(Config.TitlePvp)
                     end
