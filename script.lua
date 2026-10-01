@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790876587
+local SCRIPT_VERSION_TIMESTAMP = 1790877388
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -225,7 +225,7 @@ pcall(function()
                     SessionRebirths = diff
                     Config.RebirthsCount = SessionRebirths
                     if MainStatsCard then
-                        MainStatsCard.Update("Clicks: " .. Config.ClicksCount .. " | Rebirths: " .. SessionRebirths, Themes.Accent2)
+                        MainStatsCard.Update("Clicks: " .. Config.ClicksCount .. " | Rebirths: " .. SessionRebirths, (Themes and Themes.Accent2) or Color3.fromRGB(0, 210, 255))
                     end
                 end
             end
@@ -5725,7 +5725,7 @@ if RemoteBossEventUpdate then
         if phase then bossEventPhase = phase end
         if youJoined ~= nil then
             bossPlayerJoined = (youJoined == true)
-            if youJoined == true and not bossDiedInCurrentEvent then
+            if youJoined == true and not bossDiedInCurrentEvent and Config.AutoEnterBoss then
                 isBossFighting = true
                 bossStartTime = os.clock()
                 recordActivity()
@@ -5735,7 +5735,7 @@ if RemoteBossEventUpdate then
 
         if phase == "Active" and not bossDiedInCurrentEvent then
             bossStartTime = os.clock()
-            if bossPlayerJoined or Config.AutoEnterBoss then
+            if (bossPlayerJoined or Config.AutoEnterBoss) and Config.AutoEnterBoss then
                 isBossFighting = true
                 recordActivity()
                 task.defer(teleportToBossArena)
@@ -5765,6 +5765,15 @@ spawnThread(function()
     
     while true do
         pcall(function()
+            if not Config.AutoEnterBoss and not Config.BossAutoAttack then
+                if isBossFighting or wasFightingBoss then
+                    isBossFighting = false
+                    wasFightingBoss = false
+                end
+                task.wait(0.5)
+                return
+            end
+
             if isRaidActive() and Config.AutoEnterRaid then
                 if isBossFighting or wasFightingBoss then
                     isBossFighting = false
