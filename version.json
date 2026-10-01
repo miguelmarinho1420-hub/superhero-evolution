@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790879688,
-  "commit": "c704047",
-  "message": "feat: auto treino com teleporte unico, melee colado, ataque a distancia e hub reorganizado",
-  "date": "2026-10-01 15:34:50"
+  "timestamp": 1790879975,
+  "commit": "030eec3",
+  "message": "fix: permitir notificacoes de evento e raid do jogo e bloquear apenas modais de fora da plataforma",
+  "date": "2026-10-01 15:39:37"
 }
