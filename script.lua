@@ -23,6 +23,8 @@
     ==============================================================
 ]]
 
+local SCRIPT_VERSION_TIMESTAMP = 1790872173
+
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
     for _, parent in ipairs({gethui and gethui(), (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")), game:GetService("CoreGui")}) do
@@ -6494,6 +6496,55 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
     
     print("[Hub] Script descarregado completamente como se nunca tivesse sido executado.")
 end
+
+-- ══════════════════════════════════════════════════════════════
+-- 🔄 AUTO-UPDATE EM TEMPO REAL (DETECÇÃO E RECARGA AUTOMÁTICA)
+-- ══════════════════════════════════════════════════════════════
+spawnThread(function()
+    local isAutoUpdating = false
+    while true do
+        task.wait(6)
+        if not isAutoUpdating then
+            pcall(function()
+                local verUrl = "https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/version.json?t=" .. os.time()
+                local raw = game:HttpGet(verUrl)
+                if raw and #raw > 5 then
+                    local data = HttpService:JSONDecode(raw)
+                    if data and data.timestamp and tonumber(data.timestamp) > SCRIPT_VERSION_TIMESTAMP then
+                        isAutoUpdating = true
+                        print(string.format("[Auto Update] Nova versão detectada (%s: %s)! Recarregando script automaticamente...", tostring(data.commit), tostring(data.message or "Atualização")))
+                        
+                        -- Salva configurações atuais para preservar estado
+                        pcall(function()
+                            if saveConfig then saveConfig() end
+                        end)
+                        
+                        -- Notifica o jogador na tela
+                        pcall(function()
+                            game:GetService("StarterGui"):SetCore("SendNotification", {
+                                Title = "🚀 Hub Atualizado!",
+                                Text = "Nova versão (" .. tostring(data.commit) .. ") carregada automaticamente!",
+                                Duration = 5
+                            })
+                        end)
+                        
+                        -- Limpa a instância atual com segurança
+                        pcall(function()
+                            if getgenv().SuperHeroEvolutionHubCleanup then
+                                getgenv().SuperHeroEvolutionHubCleanup()
+                            end
+                        end)
+                        
+                        task.wait(0.5)
+                        
+                        -- Executa a versão mais recente com cache-busting
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/script.lua?t=" .. os.time()))()
+                    end
+                end
+            end)
+        end
+    end
+end)
 
 -- Seleciona a primeira aba inicialmente
 if TabButtons["Treino"] then
