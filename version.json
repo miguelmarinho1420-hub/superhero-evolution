@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790880626,
-  "commit": "43f157b",
-  "message": "feat: opcao para escolher se quer ver ou pular a animacao de abrir ovos",
-  "date": "2026-10-01 15:50:28"
+  "timestamp": 1790880754,
+  "commit": "76dc558",
+  "message": "feat: remover aba Mundos da interface conforme solicitado",
+  "date": "2026-10-01 15:52:36"
 }
