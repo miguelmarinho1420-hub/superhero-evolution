@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790879688
+local SCRIPT_VERSION_TIMESTAMP = 1790879975
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -1177,58 +1177,53 @@ do
 local VirtualInputManager = nil
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
--- Verifica se o texto ou nome se refere a Boss ou Raid (NUNCA FECHAR, SEMPRE PRESERVAR)
-local function isBossOrRaid(name, text)
+-- Verifica se o elemento é aviso do jogo, Boss, Raid ou evento in-game (NUNCA FECHAR, SEMPRE PERMITIR QUE APAREÇA)
+local function isAllowedInGameEventOrNotification(name, text)
     local n = string.lower(name or "")
     local t = string.lower(text or "")
     return n:find("boss") ~= nil or n:find("raid") ~= nil or n:find("invas") ~= nil
+        or n:find("invite") ~= nil or n:find("event") ~= nil or n:find("meteor") ~= nil
+        or n:find("battle") ~= nil or n:find("survival") ~= nil
         or t:find("boss") ~= nil or t:find("raid") ~= nil or t:find("invas") ~= nil
+        or t:find("lute contra") ~= nil or t:find("saque insano") ~= nil
+        or t:find("tung") ~= nil or t:find("sahur") ~= nil
+        or t:find("vá!") ~= nil or t:find("va!") ~= nil
 end
 
--- Identifica com precisão textos de pop-ups indesejados (Robux e Anúncios de Eventos como Admin Abuse)
+local isBossOrRaid = isAllowedInGameEventOrNotification
+
+-- Identifica com precisão textos de pop-ups indesejados (Apenas itens de Robux e pop-ups de fora do jogo da plataforma Roblox)
 local function isUnwantedPopupText(txt)
     if not txt or type(txt) ~= "string" then return false end
     local lower = string.lower(txt)
     
-    -- Se for Boss ou Raid, NUNCA considerar indesejado ("DEIXA")
-    if isBossOrRaid(nil, lower) then
+    -- Notificações de eventos e raids do jogo PODEM aparecer
+    if isAllowedInGameEventOrNotification(nil, lower) then
         return false
     end
     
-    -- 1. Pop-ups de Compra de Itens e Robux (Imagem 2)
+    -- 1. Pop-ups de Compra de Itens e Robux
     if lower:find("comprar robux")
        or lower:find("robux e item")
        or lower:find("comprar item")
-       or lower:find("2x velocidade")
-       or lower:find("permanente")
        or lower:find("termos de uso da roblox")
        or lower:find("método de pagamento")
        or lower:find("metodo de pagamento")
-       or lower:find("multiplicador de poder")
        or lower:find("ganhe 10%% de desconto")
        or lower:find("starter pack")
        or lower:find("special offer")
        or lower:find("oferta especial")
-       or lower:find("oferta limitada")
-       or lower:find("limited offer")
        or lower:find("compre agora")
-       or lower:find("buy now")
-       or lower:find("offline earnings")
-       or lower:find("speedboost") then
+       or lower:find("buy now") then
         return true
     end
     
-    -- 2. Pop-ups de Avisos de Evento / Admin Abuse (Imagem 1)
-    if lower:find("participar do evento")
-       or lower:find("abuso de administrador")
+    -- 2. Pop-ups nativos da plataforma Roblox (de fora do jogo, ex: Admin Abuse / Eventos da plataforma)
+    if lower:find("abuso de administrador")
        or lower:find("abuso de admin")
        or lower:find("admin abuse")
-       or lower:find("avise%-me")
-       or lower:find("avise me")
        or lower:find("evento da experiência")
        or lower:find("evento da experiencia")
-       or lower:find("notificação de evento")
-       or lower:find("notificacao de evento")
        or lower:find("experience event") then
         return true
     end
@@ -1379,11 +1374,9 @@ end
 pcall(function()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
-        hookContainerDismiss(pgui)
         local sg = pgui:FindFirstChild("ScreenGui")
         if sg then
-            hookContainerDismiss(sg)
-            hookContainerDismiss(sg:FindFirstChild("Top"))
+            -- Menus de loja / ofertas (NÃO hooka Top para que todos os eventos do jogo e avisos apareçam livremente)
             hookContainerDismiss(sg:FindFirstChild("Menus"))
         end
     end
@@ -1396,7 +1389,7 @@ pcall(function()
     end
 end)
 
--- Loop contínuo de limpeza (a cada 0.25s): Remove instantaneamente pop-ups de Robux e Eventos indesejados
+-- Loop contínuo de limpeza (a cada 0.3s): Remove apenas pop-ups de fora do jogo (CoreGui da Roblox) e itens de Robux
 spawnThread(function()
     while true do
         if Config.AutoClosePopups then
@@ -1404,7 +1397,7 @@ spawnThread(function()
                 local pgui = LocalPlayer:FindFirstChild("PlayerGui")
                 local cg = game:GetService("CoreGui")
                 
-                -- 1. CoreGui: Compras nativas de Robux (Imagem 2) e Notificações de Evento do Roblox (Imagem 1)
+                -- 1. Pop-ups DE FORA DO JOGO (Plataforma Roblox / CoreGui: Compras nativas de Robux e Notificações de Evento do Roblox)
                 local targetCoreGuis = {
                     "PurchasePromptApp", "PurchasePrompt", "RobloxPromptGui",
                     "ExperienceEventNotification", "EventNotification", "EventsApp",
@@ -1413,21 +1406,12 @@ spawnThread(function()
                 for _, promptName in ipairs(targetCoreGuis) do
                     local pGui = cg:FindFirstChild(promptName)
                     if pGui then
-                        local shouldDismiss = false
-                        for _, d in ipairs(pGui:GetDescendants()) do
-                            if (d:IsA("TextLabel") or d:IsA("TextButton")) and isUnwantedPopupText(d.Text) then
-                                shouldDismiss = true
-                                break
-                            end
-                        end
-                        if shouldDismiss or promptName:find("Purchase") or promptName:find("Event") then
-                            dismissGuiPopup(pGui)
-                        end
+                        dismissGuiPopup(pGui)
                     end
                 end
                 
                 for _, child in ipairs(cg:GetChildren()) do
-                    if child:IsA("ScreenGui") and not isBossOrRaid(child.Name) then
+                    if child:IsA("ScreenGui") and not isAllowedInGameEventOrNotification(child.Name) then
                         local cn = child.Name:lower()
                         if cn:find("purchase") or cn:find("event") or cn:find("prompt") then
                             for _, d in ipairs(child:GetDescendants()) do
@@ -1440,21 +1424,10 @@ spawnThread(function()
                     end
                 end
                 
-                -- 2. PlayerGui: Menus, Anúncios e Pop-ups de Oferta e Eventos
+                -- 2. PlayerGui: Apenas menus intrusivos de loja e compra de Robux (NUNCA fecha Top nem avisos do jogo)
                 if pgui then
                     local sg = pgui:FindFirstChild("ScreenGui")
                     if sg then
-                        -- Top do jogo: Preserva 100% BossFightInvite e RaidInvite ("DEIXA")
-                        local top = sg:FindFirstChild("Top")
-                        if top then
-                            for _, n in ipairs({"MeteorInvite", "SurvivalInvite", "Poll", "TeamBattle"}) do
-                                local f = top:FindFirstChild(n)
-                                if f and f.Visible then
-                                    dismissGuiPopup(f)
-                                end
-                            end
-                        end
-                        
                         -- Menus de loja / ofertas de Robux
                         local menus = sg:FindFirstChild("Menus")
                         if menus then
@@ -1464,29 +1437,10 @@ spawnThread(function()
                             end
                         end
                         
-                        -- Pop-ups de anúncios de eventos / Admin Abuse (Imagem 1)
-                        for _, n in ipairs({"Tutorial", "AdminAbuse", "Notification", "OfflineEarnings", "LeavePopup", "TrainPopup", "Revive", "TeamBattleTrigger", "EventThemeTrigger", "SpeedBoostPrompt", "StarterPackPromo"}) do
+                        -- Pop-ups específicos de compra/anúncio de Robux
+                        for _, n in ipairs({"AdminAbuse", "OfflineEarnings", "SpeedBoostPrompt", "StarterPackPromo"}) do
                             local f = sg:FindFirstChild(n)
                             if f and f.Visible then dismissGuiPopup(f) end
-                        end
-                    end
-                    
-                    -- Varre outras ScreenGuis em PlayerGui
-                    for _, gui in ipairs(pgui:GetChildren()) do
-                        if gui:IsA("ScreenGui") and gui.Name ~= "SuperHeroEvolutionHub" and gui.Name ~= "SuperHeroMiniBar" and gui.Name ~= "ScreenGui" then
-                            if not isBossOrRaid(gui.Name) then
-                                local gName = gui.Name:lower()
-                                if gName:find("adminabuse") or gName:find("purchase") or gName:find("prompt") then
-                                    dismissGuiPopup(gui)
-                                else
-                                    for _, d in ipairs(gui:GetDescendants()) do
-                                        if (d:IsA("TextLabel") or d:IsA("TextButton")) and isUnwantedPopupText(d.Text) then
-                                            dismissGuiPopup(gui)
-                                            break
-                                        end
-                                    end
-                                end
-                            end
                         end
                     end
                 end
@@ -1517,7 +1471,7 @@ spawnThread(function()
                 end
             end)
         end
-        task.wait(0.25)
+        task.wait(0.3)
     end
 end)
 end
