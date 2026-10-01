@@ -1153,31 +1153,85 @@ table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(disableEmoteT
 -- ══════════════════════════════════════════════════════════════
 --  AUTO FECHAR POP-UPS (ROBUX, EVENTOS NATIVOS, CONVITES & LOJA)
 -- ══════════════════════════════════════════════════════════════
+-- ══════════════════════════════════════════════════════════════
+-- 🛡️ AUTO FECHAR POP-UPS (ROBUX & AVISOS DE EVENTOS NATIVOS)
+-- ⚠️ AVISOS DE INÍCIO DE BOSS E RAID SÃO 100% PRESERVADOS ("DEIXA")
+-- ══════════════════════════════════════════════════════════════
 do
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+
+-- Verifica se o texto ou nome se refere a Boss ou Raid (NUNCA FECHAR, SEMPRE PRESERVAR)
+local function isBossOrRaid(name, text)
+    local n = string.lower(name or "")
+    local t = string.lower(text or "")
+    return n:find("boss") ~= nil or n:find("raid") ~= nil or n:find("invas") ~= nil
+        or t:find("boss") ~= nil or t:find("raid") ~= nil or t:find("invas") ~= nil
+end
+
+-- Identifica com precisão textos de pop-ups indesejados (Robux e Anúncios de Eventos como Admin Abuse)
 local function isUnwantedPopupText(txt)
     if not txt or type(txt) ~= "string" then return false end
     local lower = string.lower(txt)
-    return lower:find("participar do evento") ~= nil
-        or lower:find("abuso de admin") ~= nil
-        or lower:find("admin abuse") ~= nil
-        or lower:find("avise%-me") ~= nil
-        or lower:find("comprar item") ~= nil
-        or lower:find("multiplicador de poder") ~= nil
-        or lower:find("ganhe 10%% de desconto") ~= nil
-        or lower:find("roblox plus") ~= nil
-        or lower:find("starter pack") ~= nil
-        or lower:find("special offer") ~= nil
-        or lower:find("oferta especial") ~= nil
-        or lower:find("oferta limitada") ~= nil
-        or lower:find("compre agora") ~= nil
-        or lower:find("buy now") ~= nil
-        or lower:find("offline earnings") ~= nil
+    
+    -- Se for Boss ou Raid, NUNCA considerar indesejado ("DEIXA")
+    if isBossOrRaid(nil, lower) then
+        return false
+    end
+    
+    -- 1. Pop-ups de Compra de Itens e Robux (Imagem 2)
+    if lower:find("comprar robux")
+       or lower:find("robux e item")
+       or lower:find("comprar item")
+       or lower:find("2x velocidade")
+       or lower:find("permanente")
+       or lower:find("termos de uso da roblox")
+       or lower:find("método de pagamento")
+       or lower:find("metodo de pagamento")
+       or lower:find("multiplicador de poder")
+       or lower:find("ganhe 10%% de desconto")
+       or lower:find("starter pack")
+       or lower:find("special offer")
+       or lower:find("oferta especial")
+       or lower:find("oferta limitada")
+       or lower:find("limited offer")
+       or lower:find("compre agora")
+       or lower:find("buy now")
+       or lower:find("offline earnings")
+       or lower:find("speedboost") then
+        return true
+    end
+    
+    -- 2. Pop-ups de Avisos de Evento / Admin Abuse (Imagem 1)
+    if lower:find("participar do evento")
+       or lower:find("abuso de administrador")
+       or lower:find("abuso de admin")
+       or lower:find("admin abuse")
+       or lower:find("avise%-me")
+       or lower:find("avise me")
+       or lower:find("evento da experiência")
+       or lower:find("evento da experiencia")
+       or lower:find("notificação de evento")
+       or lower:find("notificacao de evento")
+       or lower:find("experience event") then
+        return true
+    end
+    
+    return false
 end
 
+-- Dispara clique real em botão com VirtualInputManager e fallback para firesignal
 local function clickGuiButton(btn)
     if not btn or not btn:IsA("GuiButton") then return false end
     local clicked = false
     pcall(function()
+        if VirtualInputManager and btn.AbsoluteSize.X > 0 and btn.AbsoluteSize.Y > 0 then
+            local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+            VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+            task.wait(0.02)
+            VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+            clicked = true
+        end
         if firesignal then
             if btn.Activated then firesignal(btn.Activated) end
             if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
@@ -1192,15 +1246,21 @@ local function clickGuiButton(btn)
     return clicked
 end
 
+-- Fecha o popup nativamente buscando e acionando o botão "X" / Fechar e ocultando a tela
 local function dismissGuiPopup(frameOrGui)
     if not frameOrGui then return end
     
-    -- 1. Se for ScreenGui, desativa diretamente
-    if frameOrGui:IsA("ScreenGui") then
+    -- NUNCA fechar se for aviso ou convite de Boss ou Raid ("DEIXA")
+    if isBossOrRaid(frameOrGui.Name) then
+        return
+    end
+
+    -- 1. Se for ScreenGui fora do CoreGui, tenta desabilitar
+    if frameOrGui:IsA("ScreenGui") and frameOrGui.Parent ~= game:GetService("CoreGui") then
         pcall(function() frameOrGui.Enabled = false end)
     end
 
-    -- 2. Varre botões para fechar/recusar nativamente (acionando os eventos do jogo/Roblox)
+    -- 2. Varre botões para fechar/recusar nativamente (acionando botões "X", Cancelar, Fechar)
     for _, btn in ipairs(frameOrGui:GetDescendants()) do
         if btn:IsA("GuiButton") then
             local bn = btn.Name:lower()
@@ -1208,7 +1268,7 @@ local function dismissGuiPopup(frameOrGui)
             
             -- Por nome do botão
             if bn:find("cancel") or bn:find("close") or bn:find("decline") or bn:find("dismiss")
-               or bn == "x" or bn == "button2" or bn:find("exit") or bn:find("fechar") or bn:find("voltar") then
+               or bn == "x" or bn == "button2" or bn:find("exit") or bn:find("fechar") or bn:find("voltar") or bn:find("back") then
                 isClose = true
             end
             
@@ -1224,18 +1284,19 @@ local function dismissGuiPopup(frameOrGui)
             -- Por imagem (ImageButton - ex: ícone X ou fechar)
             if not isClose and btn:IsA("ImageButton") then
                 local img = btn.Image:lower()
-                if img:find("close") or img:find("cross") or img:find("cancel") or img:find("x") or img:find("back") then
+                if img:find("close") or img:find("cross") or img:find("cancel") or img:find("x") or img:find("back") or img:find("reject") then
                     isClose = true
                 end
             end
             
-            -- Detecção por posição no cabeçalho (ex: botão X no canto superior do modal)
-            if not isClose and btn.AbsoluteSize.X > 0 and btn.AbsoluteSize.X <= 65 and btn.AbsoluteSize.Y <= 65 then
-                local pGuiObj = btn:FindFirstAncestorWhichIsA("GuiObject")
-                if pGuiObj then
-                    local relY = btn.AbsolutePosition.Y - pGuiObj.AbsolutePosition.Y
-                    if relY >= 0 and relY < 75 then
-                        if bn:find("btn") or bn:find("button") or bn:find("icon") or bn:find("close") or bn:find("x") then
+            -- Detecção por posição no cabeçalho (Botão X no topo esquerdo da Imagem 1 ou topo direito da Imagem 2)
+            if not isClose and btn.AbsoluteSize.X > 0 and btn.AbsoluteSize.X <= 75 and btn.AbsoluteSize.Y <= 75 then
+                local pModal = btn:FindFirstAncestorWhichIsA("GuiObject")
+                if pModal and pModal.AbsoluteSize.X > 150 and pModal.AbsoluteSize.Y > 150 then
+                    local relX = btn.AbsolutePosition.X - pModal.AbsolutePosition.X
+                    local relY = btn.AbsolutePosition.Y - pModal.AbsolutePosition.Y
+                    if relY >= 0 and relY < 90 then
+                        if relX < 90 or relX > (pModal.AbsoluteSize.X - 90) then
                             isClose = true
                         end
                     end
@@ -1248,11 +1309,12 @@ local function dismissGuiPopup(frameOrGui)
         end
     end
     
-    -- 3. Oculta os objetos visuais para garantir que nada fique na tela
+    -- 3. Oculta e joga fora da tela para garantir que nada permaneça visível
     pcall(function()
         if frameOrGui:IsA("GuiObject") then
             frameOrGui.Visible = false
-        elseif frameOrGui:IsA("ScreenGui") then
+            frameOrGui.Position = UDim2.new(10, 0, 10, 0)
+        elseif frameOrGui:IsA("ScreenGui") and frameOrGui.Parent ~= game:GetService("CoreGui") then
             frameOrGui.Enabled = false
         end
         for _, c in ipairs(frameOrGui:GetChildren()) do
@@ -1263,7 +1325,7 @@ local function dismissGuiPopup(frameOrGui)
     end)
 end
 
--- Listener de surgimento instantâneo em PlayerGui e CoreGui
+-- Listener instantâneo em PlayerGui e CoreGui
 local function hookContainerDismiss(container)
     if not container then return end
     local conn = container.ChildAdded:Connect(function(child)
@@ -1271,22 +1333,25 @@ local function hookContainerDismiss(container)
         task.defer(function()
             pcall(function()
                 local cn = child.Name:lower()
-                if (cn:find("bossfightinvite") or cn == "bossfightinvite") and Config.AutoEnterBoss then
+                -- NUNCA fechar aviso de Boss ou Raid ("DEIXA")
+                if isBossOrRaid(cn) then
                     return
                 end
-                if (cn:find("raidinvite") or cn == "raidinvite") and Config.AutoEnterRaid then
-                    return
-                end
-                if cn:find("invite") or cn:find("popup") or cn:find("offer") or cn:find("prompt")
-                   or cn:find("trigger") or cn:find("poll") or cn:find("store") or cn:find("revive")
-                   or cn:find("event") or cn:find("adminabuse") then
+                
+                -- Se for pop-up indesejado conhecido
+                if cn:find("adminabuse") or cn:find("purchase") or cn:find("eventnotification")
+                   or cn:find("experienceevent") or cn:find("eventsapp") or cn:find("eventmodal")
+                   or cn:find("notificationmodal") or cn:find("speedboost") or cn:find("starterpack")
+                   or cn:find("limitedoffer") or cn:find("specialoffer") or cn:find("offlineearnings") then
                     dismissGuiPopup(child)
-                else
-                    for _, lbl in ipairs(child:GetDescendants()) do
-                        if lbl:IsA("TextLabel") and isUnwantedPopupText(lbl.Text) then
-                            dismissGuiPopup(child)
-                            break
-                        end
+                    return
+                end
+                
+                -- Checa se contém texto indesejado
+                for _, lbl in ipairs(child:GetDescendants()) do
+                    if (lbl:IsA("TextLabel") or lbl:IsA("TextButton")) and isUnwantedPopupText(lbl.Text) then
+                        dismissGuiPopup(child)
+                        break
                     end
                 end
             end)
@@ -1315,114 +1380,15 @@ pcall(function()
     end
 end)
 
--- Intercepta pedidos nativos de compra de Robux para cancelar imediatamente
-pcall(function()
-    local MarketplaceService = game:GetService("MarketplaceService")
-    if MarketplaceService then
-        if MarketplaceService.PromptPurchaseRequested then
-            MarketplaceService.PromptPurchaseRequested:Connect(function()
-                if Config.AutoClosePopups then
-                    task.defer(function()
-                        local cg = game:GetService("CoreGui")
-                        for _, n in ipairs({"PurchasePromptApp", "PurchasePrompt", "RobloxPromptGui", "BulkPurchaseApp", "CommercePurchaseApp"}) do
-                            local p = cg:FindFirstChild(n)
-                            if p then dismissGuiPopup(p) end
-                        end
-                    end)
-                end
-            end)
-        end
-        if MarketplaceService.PromptProductPurchaseRequested then
-            MarketplaceService.PromptProductPurchaseRequested:Connect(function()
-                if Config.AutoClosePopups then
-                    task.defer(function()
-                        local cg = game:GetService("CoreGui")
-                        for _, n in ipairs({"PurchasePromptApp", "PurchasePrompt", "RobloxPromptGui", "BulkPurchaseApp", "CommercePurchaseApp"}) do
-                            local p = cg:FindFirstChild(n)
-                            if p then dismissGuiPopup(p) end
-                        end
-                    end)
-                end
-            end)
-        end
-    end
-end)
-
+-- Loop contínuo de limpeza (a cada 0.25s): Remove instantaneamente pop-ups de Robux e Eventos indesejados
 spawnThread(function()
     while true do
         if Config.AutoClosePopups then
             pcall(function()
                 local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-                if pgui then
-                    -- 1. Varre ScreenGuis em PlayerGui (ignora hub próprio)
-                    for _, gui in ipairs(pgui:GetChildren()) do
-                        if gui:IsA("ScreenGui") and gui.Name ~= "SuperHeroEvolutionHub" and gui.Name ~= "SuperHeroMiniBar" then
-                            local gName = gui.Name:lower()
-                            if gName:find("event") or gName:find("notification") or gName:find("prompt") or gName:find("adminabuse") then
-                                dismissGuiPopup(gui)
-                            else
-                                for _, d in ipairs(gui:GetChildren()) do
-                                    if d:IsA("GuiObject") and d.Visible then
-                                        local dName = d.Name:lower()
-                                        local isTarget = false
-                                        if dName:find("invite") or dName:find("popup") or dName:find("offer") or dName:find("prompt")
-                                           or dName:find("trigger") or dName:find("poll") or dName:find("store") or dName:find("revive")
-                                           or dName:find("adminabuse") or dName:find("tutorial") or dName:find("leave") or dName:find("speedboost") then
-                                            isTarget = true
-                                        else
-                                            for _, lbl in ipairs(d:GetDescendants()) do
-                                                if lbl:IsA("TextLabel") and isUnwantedPopupText(lbl.Text) then
-                                                    isTarget = true
-                                                    break
-                                                end
-                                            end
-                                        end
-                                        if isTarget then
-                                            dismissGuiPopup(d)
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    
-                    -- 2. Pop-ups específicos do Top e Menus do jogo
-                    local sg = pgui:FindFirstChild("ScreenGui")
-                    if sg then
-                        local top = sg:FindFirstChild("Top")
-                        if top then
-                            for _, n in ipairs({"BossFightInvite", "RaidInvite", "MeteorInvite", "SurvivalInvite", "Poll", "TeamBattle"}) do
-                                local f = top:FindFirstChild(n)
-                                if f and f.Visible then
-                                    if n == "BossFightInvite" and Config.AutoEnterBoss then
-                                        -- Deixa o Auto Boss processar e aceitar
-                                    elseif n == "RaidInvite" and Config.AutoEnterRaid then
-                                        -- Deixa o Auto Raid processar e aceitar
-                                    else
-                                        dismissGuiPopup(f)
-                                    end
-                                end
-                            end
-                        end
-                        
-                        local menus = sg:FindFirstChild("Menus")
-                        if menus then
-                            for _, n in ipairs({"Store", "SpecialOffer", "OfflineEarnings", "LimitedOffer", "StarterPack"}) do
-                                local f = menus:FindFirstChild(n)
-                                if f and f.Visible then dismissGuiPopup(f) end
-                            end
-                        end
-                        
-                        -- Pop-ups diretos de anúncios conhecidos
-                        for _, n in ipairs({"Tutorial", "AdminAbuse", "Notification", "OfflineEarnings", "LeavePopup", "TrainPopup", "Revive", "TeamBattleTrigger", "EventThemeTrigger", "SpeedBoostPrompt", "StarterPackPromo"}) do
-                            local f = sg:FindFirstChild(n)
-                            if f and f.Visible then dismissGuiPopup(f) end
-                        end
-                    end
-                end
-                
-                -- 3. CoreGui: Fechar compras nativas de Robux e Notificações de Evento do Roblox
                 local cg = game:GetService("CoreGui")
+                
+                -- 1. CoreGui: Compras nativas de Robux (Imagem 2) e Notificações de Evento do Roblox (Imagem 1)
                 local targetCoreGuis = {
                     "PurchasePromptApp", "PurchasePrompt", "RobloxPromptGui",
                     "ExperienceEventNotification", "EventNotification", "EventsApp",
@@ -1431,16 +1397,25 @@ spawnThread(function()
                 for _, promptName in ipairs(targetCoreGuis) do
                     local pGui = cg:FindFirstChild(promptName)
                     if pGui then
-                        dismissGuiPopup(pGui)
+                        local shouldDismiss = false
+                        for _, d in ipairs(pGui:GetDescendants()) do
+                            if (d:IsA("TextLabel") or d:IsA("TextButton")) and isUnwantedPopupText(d.Text) then
+                                shouldDismiss = true
+                                break
+                            end
+                        end
+                        if shouldDismiss or promptName:find("Purchase") or promptName:find("Event") then
+                            dismissGuiPopup(pGui)
+                        end
                     end
                 end
                 
                 for _, child in ipairs(cg:GetChildren()) do
-                    if child:IsA("ScreenGui") and child.Enabled then
+                    if child:IsA("ScreenGui") and not isBossOrRaid(child.Name) then
                         local cn = child.Name:lower()
                         if cn:find("purchase") or cn:find("event") or cn:find("prompt") then
                             for _, d in ipairs(child:GetDescendants()) do
-                                if d:IsA("TextLabel") and isUnwantedPopupText(d.Text) then
+                                if (d:IsA("TextLabel") or d:IsA("TextButton")) and isUnwantedPopupText(d.Text) then
                                     dismissGuiPopup(child)
                                     break
                                 end
@@ -1449,10 +1424,60 @@ spawnThread(function()
                     end
                 end
                 
-                -- 4. Restaura Blur de tela causado por popups fechados
+                -- 2. PlayerGui: Menus, Anúncios e Pop-ups de Oferta e Eventos
+                if pgui then
+                    local sg = pgui:FindFirstChild("ScreenGui")
+                    if sg then
+                        -- Top do jogo: Preserva 100% BossFightInvite e RaidInvite ("DEIXA")
+                        local top = sg:FindFirstChild("Top")
+                        if top then
+                            for _, n in ipairs({"MeteorInvite", "SurvivalInvite", "Poll", "TeamBattle"}) do
+                                local f = top:FindFirstChild(n)
+                                if f and f.Visible then
+                                    dismissGuiPopup(f)
+                                end
+                            end
+                        end
+                        
+                        -- Menus de loja / ofertas de Robux
+                        local menus = sg:FindFirstChild("Menus")
+                        if menus then
+                            for _, n in ipairs({"Store", "SpecialOffer", "OfflineEarnings", "LimitedOffer", "StarterPack"}) do
+                                local f = menus:FindFirstChild(n)
+                                if f and f.Visible then dismissGuiPopup(f) end
+                            end
+                        end
+                        
+                        -- Pop-ups de anúncios de eventos / Admin Abuse (Imagem 1)
+                        for _, n in ipairs({"Tutorial", "AdminAbuse", "Notification", "OfflineEarnings", "LeavePopup", "TrainPopup", "Revive", "TeamBattleTrigger", "EventThemeTrigger", "SpeedBoostPrompt", "StarterPackPromo"}) do
+                            local f = sg:FindFirstChild(n)
+                            if f and f.Visible then dismissGuiPopup(f) end
+                        end
+                    end
+                    
+                    -- Varre outras ScreenGuis em PlayerGui
+                    for _, gui in ipairs(pgui:GetChildren()) do
+                        if gui:IsA("ScreenGui") and gui.Name ~= "SuperHeroEvolutionHub" and gui.Name ~= "SuperHeroMiniBar" and gui.Name ~= "ScreenGui" then
+                            if not isBossOrRaid(gui.Name) then
+                                local gName = gui.Name:lower()
+                                if gName:find("adminabuse") or gName:find("purchase") or gName:find("prompt") then
+                                    dismissGuiPopup(gui)
+                                else
+                                    for _, d in ipairs(gui:GetDescendants()) do
+                                        if (d:IsA("TextLabel") or d:IsA("TextButton")) and isUnwantedPopupText(d.Text) then
+                                            dismissGuiPopup(gui)
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                -- 3. Restaura Blur de tela se todos os popups estiverem fechados
                 local blur = Lighting:FindFirstChild("Blur")
                 if blur and blur.Size > 0 then
-                    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
                     local menus = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Menus")
                     local hasVisibleMenu = false
                     if menus then
@@ -1476,7 +1501,7 @@ spawnThread(function()
                 end
             end)
         end
-        task.wait(0.75)
+        task.wait(0.25)
     end
 end)
 end
