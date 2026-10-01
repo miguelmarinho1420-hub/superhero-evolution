@@ -1,19 +1,19 @@
 --[[
     ==============================================================
-    SUPERHERO EVOLUTION HUB - AUTO EDITION
+    SUPERHERO EVOLUTION HUB - AUTO EDITION V2.0
     Game: +1 Superhero Evolution (PVP)
     Tecla 'K' para Minimizar / Abrir
     
-    Apenas as automações solicitadas:
-       • ⚡ Auto Click (Fast Click + CPS Slider)
+    Automações Otimizadas:
+       • ⚡ Auto Click (Zero FPS Drop - Otimização de Busca & Cliques Desacoplados)
        • 🔄 Auto Rebirth (Com Delay Slider & Estatísticas em Tempo Real)
-       • 🏆 Auto Win (Progressão Completa de Mundos/Estágios + Gliding)
+       • 🏆 Auto Farm Win (Deslize Suave pelos Estágios, Espera 0.5s e Parada no Pad Alvo)
        • 🌀 Auto Endless (CO-OP Sem Fim, Auto Portal, Hold Seguro, Auto Hop)
        • 🛡️ Anti-AFK Silencioso
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790893107
+local SCRIPT_VERSION_TIMESTAMP = 1790894090
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -90,9 +90,9 @@ local RemoteEndlessBattleState = Remotes and Remotes:FindFirstChild("EndlessBatt
 local RemoteEndlessUpdate = Remotes and Remotes:FindFirstChild("EndlessUpdate")
 local RemotePlayVFX = Remotes and Remotes:FindFirstChild("PlayVFX")
 
--- Hub Configuration (Apenas os 4 módulos essenciais)
+-- Hub Configuration
 local Config = {
-    -- 1. Auto Click
+    -- 1. Auto Click (Otimizado sem queda de FPS)
     FastClick = false,
     ClickCPS = 10,
     ClicksCount = 0,
@@ -102,9 +102,9 @@ local Config = {
     RebirthDelay = 1.5,
     RebirthsCount = 0,
     
-    -- 3. Auto Win (Progressão & Estágios)
+    -- 3. Auto Win (Progressão & Estágios - Padrão Mundo 9, Estágio 135, 0.5s de espera)
     SelectedProgWorld = "world9",
-    SelectedProgStage = "Stage134",
+    SelectedProgStage = "Stage135",
     AutoWin = false,
     CombatTime = 0.5,
     WinGlideSpeed = 75,
@@ -251,11 +251,24 @@ table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
     end
 end))
 
--- Detecção do Mapa Atual e Estágios
+-- Cache inteligente de mapa para eliminar quedas de FPS
+local cachedCurrentMap = nil
+local lastMapCheck = 0
+
 local function getCurrentMap()
+    local now = os.clock()
+    if cachedCurrentMap and (now - lastMapCheck < 1.0) then
+        return cachedCurrentMap
+    end
+    lastMapCheck = now
+    
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return workspace:FindFirstChild("Map") end
+    if not hrp then
+        cachedCurrentMap = workspace:FindFirstChild("Map")
+        return cachedCurrentMap
+    end
+    
     local myPos = hrp.Position
     local bestMap = nil
     local minDist = math.huge
@@ -271,7 +284,8 @@ local function getCurrentMap()
             end
         end
     end
-    return bestMap or workspace:FindFirstChild("Map")
+    cachedCurrentMap = bestMap or workspace:FindFirstChild("Map")
+    return cachedCurrentMap
 end
 
 local function getStagesOptionsForWorld(worldId)
@@ -294,9 +308,98 @@ local function getStagesOptionsForWorld(worldId)
     return list
 end
 
--- Detecção de Sacos de Treino e Inimigos para Auto Click
-local lastHitboxMapName = nil
+-- ══════════════════════════════════════════════════════════════
+-- ESTRUTURA DOS ESTÁGIOS (MUNDO 9 E OUTROS MUNDOS)
+-- ══════════════════════════════════════════════════════════════
+
+-- Encontra o Pad Livre (Free) do estágio conforme a hierarquia do jogo: Stage > Pad > Free
+local function getStageFreePad(stageInstance)
+    if not stageInstance then return nil end
+    local padFolder = stageInstance:FindFirstChild("Pad")
+    if not padFolder then return nil end
+    
+    -- 1. Busca direta dentro de Pad.Free
+    local free = padFolder:FindFirstChild("Free")
+    if free then
+        if free:IsA("BasePart") then return free end
+        local p = free:FindFirstChild("Pad") or free.PrimaryPart or free:FindFirstChildWhichIsA("BasePart")
+        if p then return p end
+    end
+    
+    -- 2. Busca direta por parte chamada Pad
+    local direct = padFolder:FindFirstChild("Pad")
+    if direct and direct:IsA("BasePart") then return direct end
+    
+    -- 3. Busca por qualquer filho com 'free' no nome
+    for _, child in ipairs(padFolder:GetChildren()) do
+        if child.Name:lower():find("free") then
+            if child:IsA("BasePart") then return child end
+            local p = child:FindFirstChildWhichIsA("BasePart", true)
+            if p then return p end
+        end
+    end
+    
+    return padFolder:FindFirstChildWhichIsA("BasePart", true)
+end
+
+-- Encontra a posição exata da área de combate / monstros de cada estágio (Stage > EnemySpawns)
+local function getStageCombatPosition(stageInstance)
+    if not stageInstance then return nil end
+    
+    -- 1. Posição média do folder EnemySpawns (exatamente onde os monstros ficam)
+    local enemySpawns = stageInstance:FindFirstChild("EnemySpawns")
+    if enemySpawns then
+        local totalPos = Vector3.zero
+        local count = 0
+        for _, p in ipairs(enemySpawns:GetChildren()) do
+            if p:IsA("BasePart") then
+                totalPos = totalPos + p.Position
+                count = count + 1
+            elseif p:IsA("Model") then
+                totalPos = totalPos + p:GetPivot().Position
+                count = count + 1
+            end
+        end
+        if count > 0 then
+            return (totalPos / count) + Vector3.new(0, 1.2, 0)
+        end
+    end
+    
+    -- 2. Ponto médio entre o Spawn do jogador e o Gate / Pad
+    local spawnObj = stageInstance:FindFirstChild("Spawn")
+    local spawnPos = spawnObj and (spawnObj:IsA("BasePart") and spawnObj.Position or (spawnObj:IsA("Model") and spawnObj:GetPivot().Position))
+    local gateObj = stageInstance:FindFirstChild("Gate") or stageInstance:FindFirstChild("Barrier")
+    local gatePos = gateObj and (gateObj:IsA("BasePart") and gateObj.Position or (gateObj:IsA("Model") and gateObj:GetPivot().Position))
+    local pad = getStageFreePad(stageInstance)
+    local padPos = pad and pad.Position
+    
+    local endPoint = gatePos or padPos
+    if spawnPos and endPoint then
+        return (spawnPos + endPoint) * 0.5 + Vector3.new(0, 1.2, 0)
+    end
+    
+    if padPos then
+        return padPos - Vector3.new(0, 0, 30)
+    end
+    
+    return stageInstance:IsA("Model") and stageInstance:GetPivot().Position or nil
+end
+
+-- Encontra a saída / Gate do estágio para avançar sem tocar no Pad intermediário
+local function getStageGatePosition(stageInstance)
+    if not stageInstance then return nil end
+    local gate = stageInstance:FindFirstChild("Gate") or stageInstance:FindFirstChild("Barrier")
+    if gate then
+        return gate:IsA("BasePart") and gate.Position or (gate:IsA("Model") and gate:GetPivot().Position)
+    end
+    local pad = getStageFreePad(stageInstance)
+    if pad then return pad.Position end
+    return nil
+end
+
+-- Detecção otimizada de sacos de pancada de treino
 local cachedHitboxList = {}
+local lastHitboxMapCheck = 0
 
 local function isPaidOrRobuxZone(inst)
     if not inst then return false end
@@ -311,15 +414,14 @@ local function isPaidOrRobuxZone(inst)
 end
 
 local function getTrainingHitboxList()
-    local curMap = getCurrentMap()
-    local mapName = curMap and curMap.Name or "Map"
-    if lastHitboxMapName == mapName and #cachedHitboxList > 0 then
+    local now = os.clock()
+    if #cachedHitboxList > 0 and (now - lastHitboxMapCheck < 3.0) then
         return cachedHitboxList
     end
-    
-    lastHitboxMapName = mapName
+    lastHitboxMapCheck = now
     cachedHitboxList = {}
     
+    local curMap = getCurrentMap()
     local containers = {}
     if curMap then
         local tz = curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
@@ -352,99 +454,10 @@ local function getTrainingHitboxList()
             if #cachedHitboxList > 0 then break end
         end
     end
-    
     return cachedHitboxList
 end
 
-local function findNearbyTrainingHitbox(hrp, maxDist)
-    if not hrp then return nil end
-    local pPos = hrp.Position
-    local bestHb = nil
-    local bestDist = maxDist or 35
-    
-    local hitboxes = getTrainingHitboxList()
-    for _, hb in ipairs(hitboxes) do
-        if hb and hb.Parent then
-            local dist = (hb.Position - pPos).Magnitude
-            if dist < bestDist then
-                bestDist = dist
-                bestHb = hb
-            end
-        end
-    end
-    return bestHb
-end
-
-local cachedCombatEnemy = nil
-local lastCombatEnemyTime = 0
-
-local function findNearbyCombatEnemy(hrp, maxDist)
-    if not hrp then return nil end
-    local pPos = hrp.Position
-    local bestDist = maxDist or 50
-    local now = os.clock()
-    
-    if cachedCombatEnemy and cachedCombatEnemy.Parent then
-        local hum = cachedCombatEnemy:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 then
-            local eRoot = cachedCombatEnemy:FindFirstChild("HumanoidRootPart") or cachedCombatEnemy.PrimaryPart or cachedCombatEnemy:FindFirstChildWhichIsA("BasePart")
-            if eRoot and (eRoot.Position - pPos).Magnitude <= (bestDist + 15) then
-                return cachedCombatEnemy
-            end
-        end
-    end
-    
-    if now - lastCombatEnemyTime < 0.25 and cachedCombatEnemy == nil then
-        return nil
-    end
-    lastCombatEnemyTime = now
-    
-    local bestEnemy = nil
-    local function evaluateModel(m)
-        if m:IsA("Model") and m ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(m) then
-            local hum = m:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                local eRoot = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
-                if eRoot then
-                    local dist = (eRoot.Position - pPos).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist
-                        bestEnemy = m
-                    end
-                end
-            end
-        end
-    end
-    
-    local containers = {}
-    local curMap = getCurrentMap()
-    if curMap then
-        local st = curMap:FindFirstChild("Stages")
-        if st then table.insert(containers, st) end
-        local en = curMap:FindFirstChild("Enemies") or curMap:FindFirstChild("Mobs")
-        if en then table.insert(containers, en) end
-    end
-    for _, name in ipairs({"Endless", "Enemies", "Mobs"}) do
-        local f = workspace:FindFirstChild(name)
-        if f then table.insert(containers, f) end
-    end
-    
-    for _, c in ipairs(containers) do
-        for _, child in ipairs(c:GetChildren()) do
-            evaluateModel(child)
-            if child:IsA("Folder") or child:IsA("Model") then
-                for _, sub in ipairs(child:GetChildren()) do
-                    evaluateModel(sub)
-                end
-            end
-        end
-    end
-    
-    cachedCombatEnemy = bestEnemy
-    return bestEnemy
-end
-
--- Estatísticas de Rebirth & Vitórias em Tempo Real
+-- Estatísticas em Tempo Real
 local SessionRebirths = 0
 local initialLeaderRebirths = nil
 local totalWinsCollectedCount = 0
@@ -512,55 +525,121 @@ pcall(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 1. MOTOR DO AUTO CLICK (FAST CLICK)
+-- 1. MOTOR DO AUTO CLICK OTIMIZADO (ZERO QUEDA DE FPS)
 -- ══════════════════════════════════════════════════════════════
+local currentTargetBag = nil
+local currentTargetEnemy = nil
+
+-- Thread 1: Rastreador de alvos desacoplado (roda a cada 0.6s, NUNCA dentro do loop rápido)
 spawnThread(function()
-    local lastBagCheck = 0
-    local lastBagHitbox = nil
+    while true do
+        if Config.FastClick then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then
+                    currentTargetBag = nil
+                    currentTargetEnemy = nil
+                    return
+                end
+                
+                local pPos = hrp.Position
+                
+                -- 1. Verifica saco de pancada de treino próximo (< 35 studs)
+                local bestBag = nil
+                local hitboxes = getTrainingHitboxList()
+                for _, hb in ipairs(hitboxes) do
+                    if hb and hb.Parent and (hb.Position - pPos).Magnitude < 35 then
+                        bestBag = hb
+                        break
+                    end
+                end
+                currentTargetBag = bestBag
+                
+                -- 2. Se não estiver perto de saco de treino, procura inimigo próximo
+                if not bestBag then
+                    local bestEnemy = nil
+                    local bestDist = 45
+                    local curMap = getCurrentMap()
+                    local searchFolders = {}
+                    if curMap then
+                        local st = curMap:FindFirstChild("Stages")
+                        if st then table.insert(searchFolders, st) end
+                        local en = curMap:FindFirstChild("Enemies") or curMap:FindFirstChild("Mobs")
+                        if en then table.insert(searchFolders, en) end
+                    end
+                    for _, fName in ipairs({"Enemies", "enemynew"}) do
+                        local f = workspace:FindFirstChild(fName)
+                        if f then table.insert(searchFolders, f) end
+                    end
+                    
+                    for _, folder in ipairs(searchFolders) do
+                        for _, child in ipairs(folder:GetChildren()) do
+                            if child:IsA("Model") and not Players:GetPlayerFromCharacter(child) then
+                                local hum = child:FindFirstChildOfClass("Humanoid")
+                                local root = child:FindFirstChild("HumanoidRootPart") or child.PrimaryPart
+                                if hum and hum.Health > 0 and root then
+                                    local d = (root.Position - pPos).Magnitude
+                                    if d < bestDist then
+                                        bestDist = d
+                                        bestEnemy = child
+                                    end
+                                end
+                            end
+                        end
+                        if bestEnemy then break end
+                    end
+                    currentTargetEnemy = bestEnemy
+                else
+                    currentTargetEnemy = nil
+                end
+            end)
+        else
+            currentTargetBag = nil
+            currentTargetEnemy = nil
+        end
+        task.wait(0.6)
+    end
+end)
+
+-- Thread 2: Disparo de Cliques Rápido e Ultra Leve (100% livre de varreduras pesadas de hierarchy)
+spawnThread(function()
     local lastTouchInterest = 0
     local lastVirtualClick = 0
     local lastStatsUpdate = 0
     
     while true do
         if Config.FastClick then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if not char or not hum or hum.Health <= 0 or not hrp then return end
-                
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            
+            if char and hum and hum.Health > 0 and hrp then
                 local now = os.clock()
-                if now - lastBagCheck >= 0.5 then
-                    lastBagCheck = now
-                    lastBagHitbox = findNearbyTrainingHitbox(hrp, 30)
-                end
                 
-                if lastBagHitbox and lastBagHitbox.Parent then
+                -- Aciona saco de pancada se estiver presente
+                if currentTargetBag and currentTargetBag.Parent then
                     if now - lastTouchInterest >= 1.5 then
                         lastTouchInterest = now
                         if firetouchinterest then
-                            firetouchinterest(hrp, lastBagHitbox, 0)
-                            firetouchinterest(hrp, lastBagHitbox, 1)
+                            firetouchinterest(hrp, currentTargetBag, 0)
+                            firetouchinterest(hrp, currentTargetBag, 1)
                         end
                     end
-                    if RemoteRequestTrain then
-                        RemoteRequestTrain:FireServer()
-                    end
-                else
-                    local enemy = findNearbyCombatEnemy(hrp, 45)
-                    if enemy then
-                        local eRoot = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChildWhichIsA("BasePart")
-                        if eRoot and (not hum or hum.MoveDirection.Magnitude <= 0.05) then
-                            local lookTarget = Vector3.new(eRoot.Position.X, hrp.Position.Y, eRoot.Position.Z)
-                            hrp.CFrame = CFrame.lookAt(hrp.Position, lookTarget)
-                        end
+                    if RemoteRequestTrain then RemoteRequestTrain:FireServer() end
+                elseif currentTargetEnemy and currentTargetEnemy.Parent then
+                    local eRoot = currentTargetEnemy:FindFirstChild("HumanoidRootPart") or currentTargetEnemy.PrimaryPart
+                    if eRoot and hum.MoveDirection.Magnitude <= 0.05 then
+                        hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(eRoot.Position.X, hrp.Position.Y, eRoot.Position.Z))
                     end
                 end
                 
+                -- Dispara remotes nativos do jogo
                 if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                 if RemotePlayerClick then RemotePlayerClick:FireServer() end
                 
-                if now - lastVirtualClick >= 0.1 then
+                -- Clique virtual desacoplado para animar sem sobrecarregar a fila de UI
+                if now - lastVirtualClick >= 0.15 then
                     lastVirtualClick = now
                     pcall(function()
                         VirtualUser:ClickButton1(Vector2.new(100, 100))
@@ -568,13 +647,13 @@ spawnThread(function()
                 end
                 
                 Config.ClicksCount = Config.ClicksCount + 1
-            end)
-            
-            local now = os.clock()
-            if now - lastStatsUpdate >= 0.25 then
-                lastStatsUpdate = now
-                if ClickStatsCard and ClickStatsCard.Update then
-                    ClickStatsCard.Update("Clicks: " .. Config.ClicksCount, Color3.fromRGB(56, 122, 255))
+                
+                -- Atualização visual controlada
+                if now - lastStatsUpdate >= 0.35 then
+                    lastStatsUpdate = now
+                    if ClickStatsCard and ClickStatsCard.Update then
+                        ClickStatsCard.Update("Clicks: " .. Config.ClicksCount, Color3.fromRGB(56, 122, 255))
+                    end
                 end
             end
         end
@@ -615,7 +694,7 @@ spawnThread(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 3. MOTOR DO AUTO WIN (PROGRESSÃO & ESTÁGIOS)
+-- 3. MOTOR DO AUTO WIN (DESLIZE, COMBATE E PARADA NO PAD ALVO)
 -- ══════════════════════════════════════════════════════════════
 local LockedPads = {}
 local OriginalPadCFrames = {}
@@ -648,33 +727,7 @@ local function lockPadStationary(pad)
     table.insert(ActiveConnections, conn)
 end
 
-local function getStageFreePad(stageInstance)
-    if not stageInstance then return nil end
-    local padFolder = stageInstance:FindFirstChild("Pad")
-    if not padFolder then return nil end
-    local target = nil
-    local free = padFolder:FindFirstChild("Free")
-    if free then
-        local padPart = free:FindFirstChild("Pad")
-        if padPart and padPart:IsA("BasePart") then
-            target = padPart
-        else
-            for _, child in ipairs(free:GetChildren()) do
-                if child:IsA("BasePart") and (child.Name == "Pad" or child.BrickColor.Name == "New Yeller" or child.Name:lower():find("pad")) then
-                    target = child
-                    break
-                end
-            end
-        end
-    end
-    if not target then
-        local direct = padFolder:FindFirstChild("Pad")
-        if direct and direct:IsA("BasePart") then target = direct end
-    end
-    if target then lockPadStationary(target) end
-    return target
-end
-
+-- Deslize plano e fluido com no-clip contínuo (elimina stutter e colisões indesejadas)
 local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -687,7 +740,7 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     local targetPos = targetCFrame.Position
     local startPos = hrp.Position
     local totalDist = (targetPos - startPos).Magnitude
-    if totalDist < 0.25 then
+    if totalDist < 0.3 then
         hrp.CFrame = targetCFrame
         return true
     end
@@ -754,84 +807,6 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     return false
 end
 
-local function getStageCorridorPath(stageInstance, targetPad)
-    if not stageInstance or not targetPad then return nil, nil end
-    local padFolder = stageInstance:FindFirstChild("Pad")
-    local paidPad = padFolder and padFolder:FindFirstChild("Paid") and padFolder.Paid:FindFirstChild("Pad")
-    local floor = stageInstance:FindFirstChild("Floor")
-    local gate = stageInstance:FindFirstChild("Gate") or stageInstance:FindFirstChild("Barrier")
-    
-    local centerEnd = nil
-    if paidPad and paidPad:IsA("BasePart") then
-        centerEnd = Vector3.new((targetPad.Position.X + paidPad.Position.X) / 2, targetPad.Position.Y, (targetPad.Position.Z + paidPad.Position.Z) / 2)
-    else
-        local padFloor = nil
-        if floor then
-            for _, fp in ipairs(floor:GetChildren()) do
-                if fp:IsA("BasePart") and (fp.Position - targetPad.Position).Magnitude < 30 then
-                    padFloor = fp
-                    break
-                end
-            end
-        end
-        if padFloor then
-            centerEnd = Vector3.new(padFloor.Position.X, targetPad.Position.Y, padFloor.Position.Z)
-        else
-            centerEnd = targetPad.Position + (targetPad.CFrame.RightVector * 12.5)
-        end
-    end
-    
-    local centerStart = nil
-    local mainFloor = nil
-    if floor then
-        local maxLen = 0
-        for _, fp in ipairs(floor:GetChildren()) do
-            if fp:IsA("BasePart") then
-                local len = math.max(fp.Size.X, fp.Size.Z)
-                if len > maxLen then maxLen = len; mainFloor = fp end
-            end
-        end
-    end
-    
-    if mainFloor and centerEnd then
-        local dz = math.abs(centerEnd.Z - mainFloor.Position.Z)
-        local dx = math.abs(centerEnd.X - mainFloor.Position.X)
-        if dz >= dx then
-            local dirSign = math.sign(centerEnd.Z - mainFloor.Position.Z)
-            if dirSign == 0 then dirSign = 1 end
-            centerStart = Vector3.new(centerEnd.X, targetPad.Position.Y, mainFloor.Position.Z - dirSign * (mainFloor.Size.Z / 2 - 4))
-        else
-            local dirSign = math.sign(centerEnd.X - mainFloor.Position.X)
-            if dirSign == 0 then dirSign = 1 end
-            centerStart = Vector3.new(mainFloor.Position.X - dirSign * (mainFloor.Size.X / 2 - 4), targetPad.Position.Y, centerEnd.Z)
-        end
-    elseif gate then
-        local gp = gate:IsA("BasePart") and gate.Position or (gate:FindFirstChildWhichIsA("BasePart") and gate:FindFirstChildWhichIsA("BasePart").Position)
-        if gp and centerEnd then
-            local dx = math.abs(centerEnd.X - gp.X)
-            local dz = math.abs(centerEnd.Z - gp.Z)
-            if dz >= dx then
-                centerStart = Vector3.new(centerEnd.X, targetPad.Position.Y, gp.Z)
-            else
-                centerStart = Vector3.new(gp.X, targetPad.Position.Y, centerEnd.Z)
-            end
-        end
-    end
-    
-    if not centerStart then
-        local enemySpawns = stageInstance:FindFirstChild("EnemySpawns")
-        local firstSp = enemySpawns and enemySpawns:FindFirstChildWhichIsA("BasePart")
-        if firstSp and centerEnd then
-            local dir = (centerEnd - firstSp.Position)
-            local u = dir.Magnitude > 0.1 and dir.Unit or Vector3.new(0, 0, -1)
-            centerStart = firstSp.Position - u * 35
-        else
-            centerStart = centerEnd - Vector3.new(0, 0, 70)
-        end
-    end
-    return centerStart, centerEnd
-end
-
 local function waitForCharacterAlive(timeout)
     timeout = timeout or 10
     local t0 = os.clock()
@@ -871,8 +846,8 @@ local function resetCharacterAndRecover()
     task.wait(0.8)
 end
 
-local function farmStage(stage, shouldGlideToPad, stagesList)
-    if shouldGlideToPad == nil then shouldGlideToPad = true end
+-- Executa o farm do estágio com tempo de espera configurável (0.5s padrão) e parada no Pad alvo
+local function farmStage(stage, isFinalTargetStage, stagesList)
     if not stage or not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
     local char = LocalPlayer.Character
@@ -880,6 +855,7 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
     
+    -- 1. Garante que o jogador está no mapa correspondente
     local stageMap = stage.Parent and stage.Parent.Parent
     if stageMap and stageMap.Name:match("^Map") then
         local curMap = getCurrentMap()
@@ -894,78 +870,39 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
         end
     end
     
-    local stagePos = nil
-    if stage:IsA("Model") then
-        stagePos = stage:GetPivot().Position
-    else
-        local bp = stage:FindFirstChildWhichIsA("BasePart", true)
-        if bp then stagePos = bp.Position end
-    end
+    local stagePos = stage:IsA("Model") and stage:GetPivot().Position or (stage:FindFirstChildWhichIsA("BasePart", true) and stage:FindFirstChildWhichIsA("BasePart", true).Position)
     if stagePos and LocalPlayer.RequestStreamAroundAsync then
         pcall(function() LocalPlayer:RequestStreamAroundAsync(stagePos) end)
     end
     
-    local targetPad = getStageFreePad(stage)
-    if not targetPad then
-        local proxyPart = stage:FindFirstChildWhichIsA("BasePart", true)
-        if proxyPart then
-            local ok = glideToCFrame(proxyPart.CFrame + Vector3.new(0, 3, 0), 60)
-            if not ok then return false, "dead" end
-            task.wait(0.2)
-            if LocalPlayer.RequestStreamAroundAsync then
-                pcall(function() LocalPlayer:RequestStreamAroundAsync(proxyPart.Position) end)
-            end
-            task.wait(0.15)
-            targetPad = getStageFreePad(stage)
-        end
-    end
-    if not targetPad or not targetPad:IsA("BasePart") then return false, "nopad" end
+    -- 2. Posição da área de combate (EnemySpawns)
+    local combatPos = getStageCombatPosition(stage)
+    if not combatPos then return false, "nopos" end
     
     char = LocalPlayer.Character
     hrp = char and char:FindFirstChild("HumanoidRootPart")
     hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-    if hum then hum.WalkSpeed = Config.WinGlideSpeed or 50 end
+    if hum then hum.WalkSpeed = Config.WinGlideSpeed or 75 end
     
-    local centerStart, centerEnd = getStageCorridorPath(stage, targetPad)
-    local padTargetCF = targetPad.CFrame + Vector3.new(0, 1.0, 0)
-    local stageY = targetPad.Position.Y + 1.2
-    
-    local startPos = centerStart and Vector3.new(centerStart.X, stageY, centerStart.Z) or nil
-    local endPos = centerEnd and Vector3.new(centerEnd.X, stageY, centerEnd.Z) or nil
-    local lineVec = (endPos and startPos) and (endPos - startPos) or nil
-    local lineLen = lineVec and lineVec.Magnitude or 0
-    local lineUnit = (lineLen > 0.1) and lineVec.Unit or Vector3.new(0, 0, 1)
-    local combatPos = startPos and (startPos + lineUnit * (lineLen * 0.55)) or nil
-    
-    if combatPos then
-        local distToComb = (hrp.Position - combatPos).Magnitude
-        if distToComb > 160 then
-            hrp.CFrame = CFrame.new(combatPos + Vector3.new(0, 1.5, 0))
-            if LocalPlayer.RequestStreamAroundAsync then
-                pcall(function() LocalPlayer:RequestStreamAroundAsync(combatPos) end)
-            end
-            task.wait(0.06)
-        elseif distToComb > 2.0 then
-            local okComb = glideToCFrame(CFrame.new(combatPos, combatPos + lineUnit), nil, true)
-            if not okComb then return false, "dead" end
-        end
-    elseif startPos then
-        local distToStart = (hrp.Position - startPos).Magnitude
-        if distToStart > 160 then
-            hrp.CFrame = CFrame.new(startPos + Vector3.new(0, 1.5, 0))
-            task.wait(0.06)
-        elseif distToStart > 2.0 then
-            local ok = glideToCFrame(CFrame.new(startPos, startPos + lineUnit), nil, true)
-            if not ok then return false, "dead" end
-        end
+    -- Desliza com velocidade configurada até a área de combate do estágio
+    local distToComb = (hrp.Position - combatPos).Magnitude
+    if distToComb > 200 then
+        hrp.CFrame = CFrame.new(combatPos + Vector3.new(0, 1.5, 0))
+        task.wait(0.06)
+    elseif distToComb > 2.0 then
+        local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
+        if not okGlide then return false, "dead" end
     end
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    local combatDuration = math.max(0.05, Config.CombatTime or 0.5)
+    -- 3. Para no estágio e luta durante o Tempo de Espera (0.5s padrão)
+    -- "deixe com tempo de espera de 0,5 seg para cada estagio"
+    -- "e no ultimo estagio faz parar no estagio antes de ir para o pad"
+    local waitDuration = math.max(0.05, Config.CombatTime or 0.5)
     local fightStart = os.clock()
-    while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < combatDuration) do
+    while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
         char = LocalPlayer.Character
         hrp = char and char:FindFirstChild("HumanoidRootPart")
         hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -981,63 +918,79 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    if shouldGlideToPad and targetPad then
-        local okPad = glideToCFrame(padTargetCF, nil, true)
-        if not okPad then return false, "dead" end
-        
-        lockPadStationary(targetPad)
-        if firetouchinterest then
-            firetouchinterest(hrp, targetPad, 0)
-            task.wait(0.02)
-            firetouchinterest(hrp, targetPad, 1)
-            local foot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
-            if foot then
-                firetouchinterest(foot, targetPad, 0)
-                task.wait(0.02)
-                firetouchinterest(foot, targetPad, 1)
-            end
-        end
-        
-        local initialWinTime = lastWinCollectedTick
-        local initialWinCount = totalWinsCollectedCount
-        local initialLeaderWins = nil
-        pcall(function()
-            local ls = LocalPlayer:FindFirstChild("leaderstats")
-            local w = ls and ls:FindFirstChild("Wins")
-            if w then initialLeaderWins = w.Value end
-        end)
-        
-        local padTouchStart = os.clock()
-        while Config.AutoWin and not Config.AutoEndless and (os.clock() - padTouchStart < 1.0) do
-            char = LocalPlayer.Character
-            hrp = char and char:FindFirstChild("HumanoidRootPart")
-            hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-            
-            hrp.CFrame = padTargetCF
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
+    -- 4. Tratamento do Pad
+    -- Se for o ÚLTIMO estágio selecionado: agora sim desliza até o Pad (Free) e confirma a vitória!
+    -- Se for estágio intermediário: avança para a saída/Gate sem tocar no Pad.
+    if isFinalTargetStage then
+        local targetPad = getStageFreePad(stage)
+        if targetPad then
+            lockPadStationary(targetPad)
+            local padTargetCF = targetPad.CFrame + Vector3.new(0, 1.0, 0)
+            local okPad = glideToCFrame(padTargetCF, nil, true)
+            if not okPad then return false, "dead" end
             
             if firetouchinterest then
                 firetouchinterest(hrp, targetPad, 0)
                 task.wait(0.02)
                 firetouchinterest(hrp, targetPad, 1)
+                local foot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
+                if foot then
+                    firetouchinterest(foot, targetPad, 0)
+                    task.wait(0.02)
+                    firetouchinterest(foot, targetPad, 1)
+                end
             end
             
-            local currentLeaderWins = nil
+            local initialWinTime = lastWinCollectedTick
+            local initialWinCount = totalWinsCollectedCount
+            local initialLeaderWins = nil
             pcall(function()
                 local ls = LocalPlayer:FindFirstChild("leaderstats")
                 local w = ls and ls:FindFirstChild("Wins")
-                if w then currentLeaderWins = w.Value end
+                if w then initialLeaderWins = w.Value end
             end)
             
-            if totalWinsCollectedCount > initialWinCount 
-                or lastWinCollectedTick > initialWinTime 
-                or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins)
-                or (hrp and (hrp.Position - targetPad.Position).Magnitude > 40) then
-                break
+            local padTouchStart = os.clock()
+            while Config.AutoWin and not Config.AutoEndless and (os.clock() - padTouchStart < 1.0) do
+                char = LocalPlayer.Character
+                hrp = char and char:FindFirstChild("HumanoidRootPart")
+                hum = char and char:FindFirstChildOfClass("Humanoid")
+                if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
+                
+                hrp.CFrame = padTargetCF
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                
+                if firetouchinterest then
+                    firetouchinterest(hrp, targetPad, 0)
+                    task.wait(0.02)
+                    firetouchinterest(hrp, targetPad, 1)
+                end
+                
+                local currentLeaderWins = nil
+                pcall(function()
+                    local ls = LocalPlayer:FindFirstChild("leaderstats")
+                    local w = ls and ls:FindFirstChild("Wins")
+                    if w then currentLeaderWins = w.Value end
+                end)
+                
+                if totalWinsCollectedCount > initialWinCount 
+                    or lastWinCollectedTick > initialWinTime 
+                    or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins)
+                    or (hrp and (hrp.Position - targetPad.Position).Magnitude > 40) then
+                    break
+                end
+                task.wait(0.05)
             end
-            task.wait(0.05)
+        end
+    else
+        -- Estágio intermediário: desliza suavemente até o Gate para entrar no próximo estágio
+        local gatePos = getStageGatePosition(stage)
+        if gatePos then
+            local distToGate = (hrp.Position - gatePos).Magnitude
+            if distToGate > 1.5 and distToGate < 80 then
+                glideToCFrame(CFrame.new(gatePos + Vector3.new(0, 1.2, 0)), nil, true)
+            end
         end
     end
     
@@ -1089,13 +1042,13 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         return
     end
     
+    -- Começa no estágio mais próximo
     local startIndex = 1
     local minDist = math.huge
     for idx, item in ipairs(stagesList) do
-        local pad = getStageFreePad(item.Stage)
-        local pPos = pad and pad.Position or (item.Stage:FindFirstChildWhichIsA("BasePart", true) and item.Stage:FindFirstChildWhichIsA("BasePart", true).Position)
-        if pPos then
-            local d = (hrp.Position - pPos).Magnitude
+        local cPos = getStageCombatPosition(item.Stage)
+        if cPos then
+            local d = (hrp.Position - cPos).Magnitude
             if d < minDist then
                 minDist = d
                 startIndex = idx
@@ -1891,7 +1844,7 @@ end
 makeDraggable(MainFrame, Topbar)
 makeDraggable(MiniBar, MiniBar)
 
--- Estatísticas em Tempo Real (FPS, Ping, Rebirths, Vitórias)
+-- FPS, Ping e Rebirths na Topbar e MiniBar
 local fpsCount = 0
 local lastTime = tick()
 
@@ -2584,7 +2537,7 @@ local EndlessTab = createTab("Auto Endless", "🌀", 4)
 local ConfigTab = createTab("Config", "⚙️", 5)
 
 -- ── ABA 1: AUTO CLICK ──────────────────────────────────────────
-createSectionHeader(ClickTab, "⚡ AUTO CLICK (FAST CLICK)")
+createSectionHeader(ClickTab, "⚡ AUTO CLICK (OTIMIZADO - ZERO LAG)")
 
 ClickStatsCard = createInfoCard(ClickTab, "📊 Cliques Efetuados", "Clicks: 0", Themes.Accent2)
 
@@ -2601,7 +2554,7 @@ createSectionHeader(RebirthTab, "🔄 AUTO REBIRTH")
 
 RebirthStatsCard = createInfoCard(RebirthTab, "📊 Estatísticas de Rebirth", "Sessão: 0 | Total: 0", Themes.Accent2)
 
-local RebirthToggle = createToggle(RebirthTab, "Ativar Auto Rebirth", Config.AutoRebirth, function(val)
+createToggle(RebirthTab, "Ativar Auto Rebirth", Config.AutoRebirth, function(val)
     Config.AutoRebirth = val
 end)
 
@@ -2642,11 +2595,11 @@ WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.
     end
 end)
 
-createSlider(WinTab, "Tempo de Combate por Estágio", 0.05, 5.0, Config.CombatTime, "s", true, function(val)
+createSlider(WinTab, "Tempo de Espera por Estágio", 0.05, 3.0, Config.CombatTime, "s", true, function(val)
     Config.CombatTime = val
 end)
 
-createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 300, Config.WinGlideSpeed, " WalkSpeed", false, function(val)
+createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 300, Config.WinGlideSpeed, " Speed", false, function(val)
     Config.WinGlideSpeed = val
 end)
 
@@ -2769,15 +2722,15 @@ spawnThread(function()
 end)
 
 -- Seleciona a primeira aba inicialmente
-if TabButtons["Auto Click"] then
-    TabButtons["Auto Click"].BackgroundTransparency = 0
-    TabButtons["Auto Click"].BackgroundColor3 = Themes.Card
-    TabButtons["Auto Click"].TextColor3 = Themes.Accent2
-    Tabs["Auto Click"].Visible = true
+if TabButtons["Auto Win"] then
+    TabButtons["Auto Win"].BackgroundTransparency = 0
+    TabButtons["Auto Win"].BackgroundColor3 = Themes.Card
+    TabButtons["Auto Win"].TextColor3 = Themes.Accent2
+    Tabs["Auto Win"].Visible = true
 end
 
 print("══════════════════════════════════════════════════════")
-print("[SUPERHERO EVOLUTION HUB - AUTO EDITION] Carregado com Sucesso!")
-print("Recursos: Auto Click, Auto Rebirth, Auto Win e Auto Endless.")
+print("[SUPERHERO EVOLUTION HUB - AUTO EDITION V2.0] Carregado com Sucesso!")
+print("Recursos: Auto Click Otimizado, Auto Rebirth, Auto Farm Win e Auto Endless.")
 print("Pressione 'K' para Minimizar / Abrir a interface.")
 print("══════════════════════════════════════════════════════")
