@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790878359
+local SCRIPT_VERSION_TIMESTAMP = 1790878496
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -4475,7 +4475,15 @@ end
 local function resetCharacterAndRecover()
     local oldChar = LocalPlayer.Character
     local oldHum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
-    if oldHum and oldHum.Health > 0 then oldHum.Health = 0 end
+    pcall(function()
+        if oldHum and oldHum.Health > 0 then
+            oldHum.Health = 0
+            oldHum:ChangeState(Enum.HumanoidStateType.Dead)
+        end
+        if oldChar then
+            oldChar:BreakJoints()
+        end
+    end)
     local t0 = os.clock()
     while os.clock() - t0 < 10 do
         local c = LocalPlayer.Character
