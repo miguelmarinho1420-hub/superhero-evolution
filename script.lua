@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895238
+local SCRIPT_VERSION_TIMESTAMP = 1790895248
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
