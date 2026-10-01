@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895461
+local SCRIPT_VERSION_TIMESTAMP = 1790895477
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -967,6 +967,7 @@ local WinToggle = nil
 local EndlessToggle = nil
 local AntiAfkToggle = nil
 local AutoClosePopupsToggle = nil
+local EndlessReviveToggle = nil
 local PlaytimeToggle = nil
 
 pcall(function()
