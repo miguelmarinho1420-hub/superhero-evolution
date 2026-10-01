@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790883584,
-  "commit": "e4b9ded",
-  "message": "Corrige localizacao do melhor saco de rebirth e distancia precisa sobre o pad de treino",
-  "date": "2026-10-01 16:39:46"
+  "timestamp": 1790884143,
+  "commit": "8c01ed6",
+  "message": "Ajusta Auto Win para respeitar rigorosamente o Tempo de Combate por Estagio",
+  "date": "2026-10-01 16:49:05"
 }
