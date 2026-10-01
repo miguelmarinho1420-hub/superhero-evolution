@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790880952
+local SCRIPT_VERSION_TIMESTAMP = 1790881069
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -191,8 +191,6 @@ local Config = {
     AutoEnterRaid = false,
     RaidObbySmart = false,
     RaidAutoAttack = false,
-    AutoSurvival = false,
-    SurvivalDodge = false,
     EventReturnMemory = false,
     
     -- Playtime & Daily Rewards
@@ -849,8 +847,6 @@ saveConfig = function()
                 AutoEnterRaid = Config.AutoEnterRaid,
                 RaidObbySmart = Config.RaidObbySmart,
                 RaidAutoAttack = Config.RaidAutoAttack,
-                AutoSurvival = Config.AutoSurvival,
-                SurvivalDodge = Config.SurvivalDodge,
                 EventReturnMemory = Config.EventReturnMemory,
                 AutoPlaytimeRewards = Config.AutoPlaytimeRewards
             }
@@ -5840,15 +5836,7 @@ createToggle(EventosTab, "Auto Atacar Monstros & Boss Final da Invasão", Config
     Config.RaidAutoAttack = val
 end)
 
-createSectionHeader(EventosTab, "🔥 SOBREVIVÊNCIA")
 
-createToggle(EventosTab, "Auto Participar do Desafio de Sobrevivência", Config.AutoSurvival, function(val)
-    Config.AutoSurvival = val
-end)
-
-createToggle(EventosTab, "Auto Desviar de Projéteis e Meteoros", Config.SurvivalDodge, function(val)
-    Config.SurvivalDodge = val
-end)
 
 createSectionHeader(EventosTab, "🧠 MEMÓRIA & RETORNO AUTOMÁTICO")
 
@@ -6543,41 +6531,7 @@ spawnThread(function()
     end
 end)
 
--- Thread Sobrevivência & Dodge de Projéteis / Shockwaves
-spawnThread(function()
-    while true do
-        pcall(function()
-            if Config.AutoEndless or isInsideEndless() then
-                task.wait(0.5)
-                return
-            end
-            if Config.AutoSurvival and RemotePromptEventRsvp then
-                RemotePromptEventRsvp:FireServer("Survival", true)
-            end
-            
-            if Config.SurvivalDodge then
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    for _, obj in ipairs(workspace:GetChildren()) do
-                        local n = obj.Name:lower()
-                        if (n:find("shockwave") or n:find("meteor") or n:find("projectile") or n:find("lightning")) and obj:IsA("BasePart") then
-                            if (obj.Position - hrp.Position).Magnitude < 18 then
-                                -- Salto inteligente sobre shockwave (requer > 4.5 studs)
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                hrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
-                                task.wait(0.2)
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-        task.wait(0.1)
-    end
-end)
+
 
 -- ══════════════════════════════════════════════════════════════
 -- 🔄 GERENCIADOR UNIVERSAL DE MORTE & RECUPERAÇÃO NO RESPAWN
