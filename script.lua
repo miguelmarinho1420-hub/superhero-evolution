@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895248
+local SCRIPT_VERSION_TIMESTAMP = 1790895461
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -368,7 +368,7 @@ table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
 end))
 
 -- ══════════════════════════════════════════════════════════════
--- MOTOR DE BLOQUEIO E FECHAMENTO DE POP-UPS (ROBUX & TELAS)
+-- MOTOR DE BLOQUEIO E FECHAMENTO DE POP-UPS EM SEGUNDO PLANO
 -- ══════════════════════════════════════════════════════════════
 local MarketplaceService = game:GetService("MarketplaceService")
 
@@ -379,7 +379,9 @@ pcall(function()
         oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
             if Config.AutoClosePopups and (self == MarketplaceService or (typeof(self) == "Instance" and self.ClassName == "MarketplaceService")) then
-                if method == "PromptProductPurchase" or method == "PromptPurchase" or method == "PromptGamePassPurchase" or method == "PromptRobloxPurchase" then
+                if method == "PromptProductPurchase" or method == "PromptPurchase" 
+                    or method == "PromptGamePassPurchase" or method == "PromptRobloxPurchase"
+                    or method == "PromptBundlePurchase" or method == "PromptPremiumPurchase" then
                     return
                 end
             end
@@ -405,10 +407,24 @@ pcall(function()
             if Config.AutoClosePopups then return end
             return oldPGP(self, ...)
         end))
+        if MarketplaceService.PromptBundlePurchase then
+            local oldPBP = MarketplaceService.PromptBundlePurchase
+            hookfunction(MarketplaceService.PromptBundlePurchase, newcclosure(function(self, ...)
+                if Config.AutoClosePopups then return end
+                return oldPBP(self, ...)
+            end))
+        end
+        if MarketplaceService.PromptPremiumPurchase then
+            local oldPMP = MarketplaceService.PromptPremiumPurchase
+            hookfunction(MarketplaceService.PromptPremiumPurchase, newcclosure(function(self, ...)
+                if Config.AutoClosePopups then return end
+                return oldPMP(self, ...)
+            end))
+        end
     end
 end)
 
--- 2. Fechamento forçado de qualquer PurchasePrompt remanescente no CoreGui
+-- 2. Fechamento forçado e assíncrono de PurchasePrompt remanescente no CoreGui
 local function closeRobloxPurchasePrompt()
     pcall(function()
         local coreGui = game:GetService("CoreGui")
@@ -416,104 +432,123 @@ local function closeRobloxPurchasePrompt()
         
         local candidates = {}
         local ppa = coreGui:FindFirstChild("PurchasePromptApp")
-        if ppa then 
-            pcall(function() ppa.Enabled = false end)
+        if ppa and ppa.Enabled then 
             table.insert(candidates, ppa) 
         end
         local pp = coreGui:FindFirstChild("PurchasePrompt")
-        if pp then 
-            pcall(function() pp.Enabled = false end)
+        if pp and pp.Enabled then 
             table.insert(candidates, pp) 
         end
         local rbxGui = coreGui:FindFirstChild("RobloxGui")
         if rbxGui then
             local rbxPP = rbxGui:FindFirstChild("PurchasePrompt")
-            if rbxPP then 
-                pcall(function() rbxPP.Enabled = false end)
+            if rbxPP and rbxPP.Enabled then 
                 table.insert(candidates, rbxPP) 
             end
         end
         for _, ch in ipairs(coreGui:GetChildren()) do
             local chName = ch.Name:lower()
             if (chName:find("purchase") or chName:find("prompt")) and ch ~= ppa and ch ~= pp then
-                pcall(function() ch.Enabled = false end)
-                table.insert(candidates, ch)
+                if ch:IsA("ScreenGui") and ch.Enabled then
+                    table.insert(candidates, ch)
+                end
             end
         end
         
-        -- Envia tecla Escape para cancelar qualquer prompt aberto nativamente
-        if vim and #candidates > 0 then
-            pcall(function()
-                vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-                task.wait(0.04)
-                vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-            end)
-        end
+        local activePrompt = false
+        local buttonsToClick = {}
         
         for _, container in ipairs(candidates) do
             for _, desc in ipairs(container:GetDescendants()) do
-                if desc:IsA("GuiButton") and desc.Visible and desc.AbsoluteSize.X > 0 and desc.AbsoluteSize.Y > 0 then
-                    local name = desc.Name:lower()
-                    local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
+                if desc:IsA("GuiObject") and desc.Visible and desc.AbsoluteSize.X > 40 and desc.AbsoluteSize.Y > 40 then
+                    activePrompt = true
                     
-                    -- NUNCA clica no botão de confirmação de compra de Robux!
-                    local isConfirmBuy = name:find("buy") or name:find("purchase") or name:find("confirm")
-                        or text:find("comprar") or text:find("buy") or text:find("purchase")
+                    if desc:IsA("GuiButton") then
+                        local name = desc.Name:lower()
+                        local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
                         
-                    if not isConfirmBuy then
-                        local isClose = false
-                        
-                        -- 1. Nome ou texto típico de fechar / cancelar / 'X'
-                        if name:find("close") or name:find("cancel") or name:find("dismiss") or name == "x" 
-                            or text == "x" or text == "✕" or text == "×" or text:find("cancel") or text:find("fechar") then
-                            isClose = true
-                        end
-                        
-                        -- 2. ImageButton com ícone de fechar / cross
-                        if not isClose and desc:IsA("ImageButton") then
-                            local img = desc.Image:lower()
-                            if img:find("close") or img:find("cancel") or img:find("cross") or img:find("x") then
+                        -- NUNCA clica no botão de confirmação de compra de Robux!
+                        local isConfirmBuy = name:find("buy") or name:find("purchase") or name:find("confirm")
+                            or text:find("comprar") or text:find("buy") or text:find("purchase")
+                            
+                        if not isConfirmBuy then
+                            local isClose = false
+                            
+                            -- 1. Nome ou texto típico de fechar / cancelar / 'X'
+                            if name:find("close") or name:find("cancel") or name:find("dismiss") or name == "x" 
+                                or text == "x" or text == "✕" or text == "×" or text:find("cancel") or text:find("fechar") then
                                 isClose = true
                             end
-                        end
-                        
-                        -- 3. Botão no cabeçalho superior do modal (exatamente onde fica o 'X' na janela)
-                        if not isClose then
-                            local parentFrame = desc.Parent
-                            if parentFrame and parentFrame:IsA("GuiObject") then
-                                local relY = math.abs(desc.AbsolutePosition.Y - parentFrame.AbsolutePosition.Y)
-                                if relY <= 70 and desc.AbsoluteSize.X <= 60 and desc.AbsoluteSize.Y <= 60 then
+                            
+                            -- 2. ImageButton com ícone de fechar / cross
+                            if not isClose and desc:IsA("ImageButton") then
+                                local img = desc.Image:lower()
+                                if img:find("close") or img:find("cancel") or img:find("cross") or img:find("x") then
                                     isClose = true
                                 end
                             end
-                        end
-                        
-                        if isClose then
-                            pcall(function()
-                                if firesignal then
-                                    firesignal(desc.Activated)
-                                    firesignal(desc.MouseButton1Click)
+                            
+                            -- 3. Botão no cabeçalho superior do modal (exatamente onde fica o 'X' na janela)
+                            if not isClose then
+                                local parentFrame = desc.Parent
+                                if parentFrame and parentFrame:IsA("GuiObject") then
+                                    local relY = math.abs(desc.AbsolutePosition.Y - parentFrame.AbsolutePosition.Y)
+                                    if relY <= 70 and desc.AbsoluteSize.X <= 60 and desc.AbsoluteSize.Y <= 60 then
+                                        isClose = true
+                                    end
                                 end
-                            end)
-                            pcall(function()
-                                local center = desc.AbsolutePosition + (desc.AbsoluteSize / 2)
-                                if vim then
-                                    vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
-                                    task.wait(0.04)
-                                    vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
-                                elseif VirtualUser then
-                                    VirtualUser:CaptureController()
-                                    VirtualUser:ClickButton1(center)
-                                end
-                            end)
+                            end
+                            
+                            if isClose then
+                                table.insert(buttonsToClick, desc)
+                            end
                         end
                     end
                 end
             end
+            
+            -- Oculta o container imediatamente
+            if activePrompt then
+                pcall(function() container.Enabled = false end)
+            end
+        end
+        
+        -- Clica nos botões de fechar instantaneamente (firesignal) sem nenhum yield
+        for _, btn in ipairs(buttonsToClick) do
+            pcall(function()
+                if firesignal then
+                    firesignal(btn.Activated)
+                    firesignal(btn.MouseButton1Click)
+                end
+            end)
+            -- Simulação de mouse em thread assíncrona isolada em segundo plano
+            pcall(function()
+                local center = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+                task.spawn(function()
+                    if vim then
+                        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
+                        task.wait(0.03)
+                        vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
+                    elseif VirtualUser then
+                        VirtualUser:CaptureController()
+                        VirtualUser:ClickButton1(center)
+                    end
+                end)
+            end)
+        end
+        
+        -- Envia tecla Escape apenas se um prompt ativo foi realmente encontrado, em thread assíncrona
+        if activePrompt and vim then
+            task.spawn(function()
+                vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                task.wait(0.03)
+                vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+            end)
         end
     end)
 end
 
+-- 3. Fechamento de Telas e Pop-ups In-Game (Revive, Ofertas, Promoções)
 local function closeGamePopups()
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -524,6 +559,7 @@ local function closeGamePopups()
         if screenGui then
             local revive = screenGui:FindFirstChild("Revive")
             if revive and revive.Visible then
+                revive.Visible = false
                 local cancelBtn = revive:FindFirstChild("Cancel", true) 
                     or revive:FindFirstChild("No", true) 
                     or revive:FindFirstChild("Close", true)
@@ -535,7 +571,6 @@ local function closeGamePopups()
                         end
                     end)
                 end
-                revive.Visible = false
             end
         end
         
@@ -562,6 +597,7 @@ local function closeGamePopups()
                                     end
                                 end
                             end
+                            desc.Visible = false
                         end
                     end
                 end
@@ -570,23 +606,33 @@ local function closeGamePopups()
     end)
 end
 
+-- 4. Motor em Segundo Plano (Totalmente Assíncrono e Não Bloqueante)
+local isClosingBackground = false
+
 local function runAutoClosePopups()
     if not Config.AutoClosePopups then return end
-    closeRobloxPurchasePrompt()
-    closeGamePopups()
+    if isClosingBackground then return end
+    isClosingBackground = true
+    
+    -- Executa completamente em segundo plano via task.spawn para nunca travar ou atrasar outras threads
+    task.spawn(function()
+        pcall(closeRobloxPurchasePrompt)
+        pcall(closeGamePopups)
+        isClosingBackground = false
+    end)
 end
 
--- Thread contínua para fechar pop-ups rapidamente
+-- Daemon em segundo plano que roda continuamente
 spawnThread(function()
     while true do
         if Config.AutoClosePopups then
-            runAutoClosePopups()
+            pcall(runAutoClosePopups)
         end
-        task.wait(0.2)
+        task.wait(0.12) -- Intervalo ágil em segundo plano (8 verificações por segundo)
     end
 end)
 
--- Gatilhos por evento para fechamento instantâneo
+-- Gatilhos reativos em segundo plano por evento para fechamento instantâneo
 pcall(function()
     local coreGui = game:GetService("CoreGui")
     local conn = coreGui.DescendantAdded:Connect(function(desc)
@@ -594,7 +640,7 @@ pcall(function()
             local p = desc.Parent
             local pName = (p and p.Name:lower()) or ""
             if pName:find("purchase") or pName:find("prompt") then
-                task.defer(runAutoClosePopups)
+                task.spawn(runAutoClosePopups)
             end
         end
     end)
@@ -606,7 +652,7 @@ pcall(function()
     if pgui then
         local conn = pgui.DescendantAdded:Connect(function(desc)
             if Config.AutoClosePopups and (desc.Name == "Revive" or desc.Name:lower():find("offer")) then
-                task.defer(runAutoClosePopups)
+                task.spawn(runAutoClosePopups)
             end
         end)
         table.insert(ActiveConnections, conn)
