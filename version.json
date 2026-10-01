@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790877388,
-  "commit": "79944d5",
-  "message": "fix: boss auto thread guard and themes nil index",
-  "date": "2026-10-01 14:56:31"
+  "timestamp": 1790877783,
+  "commit": "d3402c3",
+  "message": "feat: auto win glides directly to selected stage pad and speed slider in movement tab",
+  "date": "2026-10-01 15:03:05"
 }
