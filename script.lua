@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790881398
+local SCRIPT_VERSION_TIMESTAMP = 1790881572
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -192,6 +192,11 @@ local Config = {
     RaidObbySmart = false,
     RaidAutoAttack = false,
     EventReturnMemory = false,
+    
+    -- 10. PvP
+    PvpKillAura = false,
+    PvpStickToTarget = false,
+    PvpAuraRange = 25,
     
     -- Playtime & Daily Rewards
     AutoDailyRewards = false,
@@ -865,7 +870,10 @@ saveConfig = function()
                 RaidObbySmart = Config.RaidObbySmart,
                 RaidAutoAttack = Config.RaidAutoAttack,
                 EventReturnMemory = Config.EventReturnMemory,
-                AutoPlaytimeRewards = Config.AutoPlaytimeRewards
+                AutoPlaytimeRewards = Config.AutoPlaytimeRewards,
+                PvpKillAura = Config.PvpKillAura,
+                PvpStickToTarget = Config.PvpStickToTarget,
+                PvpAuraRange = Config.PvpAuraRange
             }
             writefile(CONFIG_FILE, HttpService:JSONEncode(data))
             print("[Config] Configurações salvas com sucesso em " .. CONFIG_FILE)
@@ -2624,13 +2632,14 @@ createTab = function(name, icon, layoutOrder)
     return page
 end
 
--- 6 Abas Organizadas
+-- 7 Abas Organizadas
 local TreinoTab = createTab("Treino", "⚡", 1)
 local FarmTab = createTab("Farm", "🏆", 2)
 local OvosTab = createTab("Ovos", "🥚", 3)
-local ConfigTab = createTab("Config", "⚙️", 4)
-local TitulosTab = createTab("Títulos", "👑", 5)
-local EventosTab = createTab("Eventos", "⚔️", 6)
+local TitulosTab = createTab("Títulos", "👑", 4)
+local EventosTab = createTab("Eventos", "⚔️", 5)
+local PvpTab = createTab("PvP", "🥊", 6)
+local ConfigTab = createTab("Config", "⚙️", 7)
 
 -- ══════════════════════════════════════════════════════════════
 -- ️ COMPONENTES VISUAIS (EXATOS DAS FOTOS)
@@ -5861,6 +5870,36 @@ createToggle(EventosTab, "Retornar à Atividade Anterior ao Fim do Evento", Conf
     Config.EventReturnMemory = val
 end)
 
+-- ══════════════════════════════════════════════════════════════
+--  6. ABA PVP (KILL AURA, SEGUIR ALVO & COMBATE JOGADOR)
+-- ══════════════════════════════════════════════════════════════
+createSectionHeader(PvpTab, "🥊 AUTO COMBATE & KILL AURA PVP")
+
+createToggle(PvpTab, "Kill Aura PvP (Atacar Jogadores Próximos)", Config.PvpKillAura, function(val)
+    Config.PvpKillAura = val
+end)
+
+createToggle(PvpTab, "Grudar no Alvo (Teleporte Contínuo nas Costas)", Config.PvpStickToTarget, function(val)
+    Config.PvpStickToTarget = val
+end)
+
+createSlider(PvpTab, "Distância da Aura PvP", 5, 50, Config.PvpAuraRange, " studs", false, function(val)
+    Config.PvpAuraRange = val
+end)
+
+createSectionHeader(PvpTab, "👑 TÍTULO DE PVP AUTOMÁTICO")
+
+createToggle(PvpTab, "Auto Equipar Título de PvP ao Lutar", Config.TitlePvpEnabled, function(val)
+    Config.TitlePvpEnabled = val
+    if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+end)
+
+createLabel(PvpTab, "Título para PvP:")
+createDropdown(PvpTab, "", AllTitlesList, Config.TitlePvp, function(id)
+    Config.TitlePvp = id
+    if autoSyncActiveTitle then autoSyncActiveTitle(true) end
+end)
+
 -- Boss Event Hooks (Prioridade Total com Aceitação Imediata e Teleporte para Arena)
 local wasFightingBoss = false
 
@@ -6634,7 +6673,82 @@ spawnThread(function()
     end
 end)
 
-
+-- ══════════════════════════════════════════════════════════════
+-- 🥊 MOTOR DE COMBATE PVP (KILL AURA, SEGUIR ALVO & ATAQUES)
+-- ══════════════════════════════════════════════════════════════
+spawnThread(function()
+    local lastPvpAttack = 0
+    while true do
+        pcall(function()
+            if not Config.PvpKillAura and not Config.PvpStickToTarget then
+                task.wait(0.2)
+                return
+            end
+            
+            if Config.AutoEndless or isInsideEndless() then
+                task.wait(0.5)
+                return
+            end
+            
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not char or not hrp or not hum or hum.Health <= 0 then
+                task.wait(0.5)
+                return
+            end
+            
+            local bestTarget = nil
+            local bestDist = Config.PvpAuraRange or 25
+            local now = os.clock()
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local tChar = player.Character
+                    local tHum = tChar:FindFirstChildOfClass("Humanoid")
+                    local tHrp = tChar:FindFirstChild("HumanoidRootPart") or tChar:FindFirstChild("Torso") or tChar.PrimaryPart
+                    if tHum and tHum.Health > 0 and tHrp then
+                        local dist = (tHrp.Position - hrp.Position).Magnitude
+                        if dist < bestDist then
+                            bestDist = dist
+                            bestTarget = player
+                        end
+                    end
+                end
+            end
+            
+            if bestTarget and bestTarget.Character then
+                local tChar = bestTarget.Character
+                local tHrp = tChar:FindFirstChild("HumanoidRootPart") or tChar:FindFirstChild("Torso") or tChar.PrimaryPart
+                local tHum = tChar:FindFirstChildOfClass("Humanoid")
+                
+                if tHrp and tHum and tHum.Health > 0 then
+                    if Config.TitlePvpEnabled and equipTitle and Config.TitlePvp then
+                        equipTitle(Config.TitlePvp)
+                    end
+                    
+                    if Config.PvpStickToTarget then
+                        local behindPos = tHrp.Position - (tHrp.CFrame.LookVector * 2.5) + Vector3.new(0, 0.5, 0)
+                        hrp.CFrame = CFrame.lookAt(behindPos, tHrp.Position)
+                        hrp.Velocity = Vector3.zero
+                        if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.zero end
+                    end
+                    
+                    if now - lastPvpAttack >= 0.05 then
+                        lastPvpAttack = now
+                        if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                        if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                        local RemotePlayerConePunch = Remotes and Remotes:FindFirstChild("PlayerConePunch")
+                        if RemotePlayerConePunch then pcall(function() RemotePlayerConePunch:FireServer() end) end
+                        local RemotePiercingSlash = Remotes and Remotes:FindFirstChild("PlayerPiercingSlash")
+                        if RemotePiercingSlash then pcall(function() RemotePiercingSlash:FireServer() end) end
+                    end
+                end
+            end
+        end)
+        task.wait(0.03)
+    end
+end)
 
 -- ══════════════════════════════════════════════════════════════
 -- 🔄 GERENCIADOR UNIVERSAL DE MORTE & RECUPERAÇÃO NO RESPAWN
