@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790880437
+local SCRIPT_VERSION_TIMESTAMP = 1790880626
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -1467,14 +1467,15 @@ end)
 end
 
 -- ══════════════════════════════════════════════════════════════
---  SILENT BACKGROUND EGG HATCH & SCREEN PROTECTION
+-- ══════════════════════════════════════════════════════════════
+-- 🥚 CONTROLE DE ANIMAÇÃO DE ABERTURA DE OVOS (ESCOLHA: VER OU PULAR)
 -- ══════════════════════════════════════════════════════════════
 pcall(function()
     local sc = require(ReplicatedStorage.Client.ScreenController)
     if sc and not sc._origHide then
         sc._origHide = sc.hide
         sc.hide = function(...)
-            if Config.SkipEggAnimation or Config.AutoHatch then return end
+            if Config.SkipEggAnimation then return end
             return sc._origHide(...)
         end
     end
@@ -1488,18 +1489,15 @@ local function protectScreenElements()
             for _, name in ipairs({"Right", "Bottom", "LeftSide", "Top"}) do
                 local frame = sg:FindFirstChild(name)
                 if frame and frame:IsA("GuiObject") then
-                    frame.Position = UDim2.new(0, 0, 0, 0)
-                    frame.Visible = true
-                    
                     local posConn = frame:GetPropertyChangedSignal("Position"):Connect(function()
-                        if (Config.SkipEggAnimation or Config.AutoHatch) and frame.Position ~= UDim2.new(0, 0, 0, 0) then
+                        if Config.SkipEggAnimation and frame.Position ~= UDim2.new(0, 0, 0, 0) then
                             frame.Position = UDim2.new(0, 0, 0, 0)
                         end
                     end)
                     table.insert(ActiveConnections, posConn)
                     
                     local visConn = frame:GetPropertyChangedSignal("Visible"):Connect(function()
-                        if (Config.SkipEggAnimation or Config.AutoHatch) and not frame.Visible then
+                        if Config.SkipEggAnimation and not frame.Visible then
                             frame.Visible = true
                         end
                     end)
@@ -1511,17 +1509,16 @@ local function protectScreenElements()
 end
 protectScreenElements()
 
-pcall(function()
-    local sounds = game:GetService("SoundService"):FindFirstChild("Sounds")
-    if sounds then
-        local shake = sounds:FindFirstChild("EggShake")
-        local eggOpen = sounds:FindFirstChild("EggOpen")
-        if shake then shake.Volume = 0 end
-        if eggOpen then eggOpen.Volume = 0 end
-    end
-end)
-
 applySkipAnimation = function(state)
+    pcall(function()
+        local sounds = game:GetService("SoundService"):FindFirstChild("Sounds")
+        if sounds then
+            local shake = sounds:FindFirstChild("EggShake")
+            local eggOpen = sounds:FindFirstChild("EggOpen")
+            if shake then shake.Volume = state and 0 or 0.5 end
+            if eggOpen then eggOpen.Volume = state and 0 or 0.5 end
+        end
+    end)
     pcall(function()
         if RemotePlayHatchVisuals and getconnections then
             for _, conn in ipairs(getconnections(RemotePlayHatchVisuals.OnClientEvent)) do
@@ -1543,7 +1540,7 @@ applySkipAnimation = function(state)
 end
 
 table.insert(ActiveConnections, workspace.ChildAdded:Connect(function(child)
-    if (Config.SkipEggAnimation or Config.AutoHatch) and child.Name == "HatchStage" then
+    if Config.SkipEggAnimation and child.Name == "HatchStage" then
         task.defer(function()
             pcall(function() child:Destroy() end)
             Camera.CameraType = Enum.CameraType.Custom
@@ -1552,7 +1549,7 @@ table.insert(ActiveConnections, workspace.ChildAdded:Connect(function(child)
 end))
 
 table.insert(ActiveConnections, Camera:GetPropertyChangedSignal("CameraType"):Connect(function()
-    if (Config.SkipEggAnimation or Config.AutoHatch) and Camera.CameraType ~= Enum.CameraType.Custom then
+    if Config.SkipEggAnimation and Camera.CameraType ~= Enum.CameraType.Custom then
         Camera.CameraType = Enum.CameraType.Custom
     end
 end))
@@ -5460,12 +5457,10 @@ createToggle(OvosTab, "Chocar Rápido", Config.FastHatch, function(val)
     Config.HatchSpeed = val and 0.08 or 0.5
 end)
 
-createToggle(OvosTab, "Pular Animação de Ovos", Config.SkipEggAnimation, function(val)
+createToggle(OvosTab, "Pular Animação de Abrir Ovos", Config.SkipEggAnimation, function(val)
     Config.SkipEggAnimation = val
     applySkipAnimation(val)
 end)
-
-
 
 spawnThread(function()
     while true do
@@ -5483,7 +5478,13 @@ spawnThread(function()
                 end
             end)
         end
-        local speed = Config.FastHatch and (Config.HatchSpeed or 0.08) or 0.5
+        local speed = 0.5
+        if Config.SkipEggAnimation then
+            speed = Config.FastHatch and (Config.HatchSpeed or 0.08) or 0.35
+        else
+            -- Se estiver exibindo a animação de abertura, aguarda o tempo de exibição da animação
+            speed = Config.FastHatch and 1.2 or 2.0
+        end
         task.wait(speed)
     end
 end)
