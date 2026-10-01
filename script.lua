@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790894558
+local SCRIPT_VERSION_TIMESTAMP = 1790895011
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -159,19 +159,35 @@ end
 
 local function loadConfig()
     local ok = pcall(function()
-        if not (readfile and isfile and isfile(CONFIG_FILE) and HttpService) then return end
-        local raw = readfile(CONFIG_FILE)
-        if not raw or #raw < 5 then return end
-        local data = HttpService:JSONDecode(raw)
-        if type(data) ~= "table" then return end
-        
-        for k, v in pairs(data) do
-            if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
-                Config[k] = v
+        local data = nil
+        -- 1. Verifica se veio do Server Hop na memória global (100% garantido sem depender de I/O de disco)
+        if getgenv().SavedHopConfig and type(getgenv().SavedHopConfig) == "string" and #getgenv().SavedHopConfig > 5 then
+            local s, d = pcall(function() return HttpService:JSONDecode(getgenv().SavedHopConfig) end)
+            if s and type(d) == "table" then
+                data = d
             end
         end
-        ConfigRestoredAfterHop = true
-        return true
+        
+        -- 2. Se não veio da memória, carrega do arquivo salvo no disco
+        if not data and readfile and isfile and isfile(CONFIG_FILE) and HttpService then
+            local raw = readfile(CONFIG_FILE)
+            if raw and #raw >= 5 then
+                local s, d = pcall(function() return HttpService:JSONDecode(raw) end)
+                if s and type(d) == "table" then
+                    data = d
+                end
+            end
+        end
+        
+        if data and type(data) == "table" then
+            for k, v in pairs(data) do
+                if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
+                    Config[k] = v
+                end
+            end
+            ConfigRestoredAfterHop = true
+            return true
+        end
     end)
     return ConfigRestoredAfterHop
 end
@@ -230,14 +246,36 @@ end
 local function queueScriptOnTeleport()
     pcall(function()
         saveConfig()
+        local state = {
+            FastClick = Config.FastClick,
+            ClickCPS = Config.ClickCPS,
+            AutoRebirth = Config.AutoRebirth,
+            RebirthDelay = Config.RebirthDelay,
+            SelectedProgWorld = Config.SelectedProgWorld,
+            SelectedProgStage = Config.SelectedProgStage,
+            AutoWin = Config.AutoWin,
+            CombatTime = Config.CombatTime,
+            WinGlideSpeed = Config.WinGlideSpeed,
+            AutoEndless = Config.AutoEndless,
+            EndlessWorld = Config.EndlessWorld,
+            AutoHopBlocked = Config.AutoHopBlocked,
+            AutoClosePopups = Config.AutoClosePopups,
+            AntiAfk = Config.AntiAfk,
+            AutoSaveConfig = Config.AutoSaveConfig,
+            SavedAt = os.time(),
+        }
+        local jsonState = HttpService:JSONEncode(state)
+        getgenv().SavedHopConfig = jsonState
+        
         local queueTeleport = (syn and syn.queue_on_teleport) 
             or queue_on_teleport 
             or (fluxus and fluxus.queue_on_teleport)
             or (getgenv and getgenv().queue_on_teleport)
             
         if queueTeleport then
-            local qCode = [[
+            local qCode = string.format([[
                 task.spawn(function()
+                    getgenv().SavedHopConfig = %q
                     repeat task.wait(0.5) until game:IsLoaded()
                     task.wait(1.5)
                     pcall(function()
@@ -250,7 +288,7 @@ local function queueScriptOnTeleport()
                         end
                     end)
                 end)
-            ]]
+            ]], jsonState)
             queueTeleport(qCode)
         end
     end)
@@ -327,8 +365,47 @@ table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
 end))
 
 -- ══════════════════════════════════════════════════════════════
--- MOTOR DE AUTO FECHAR POP-UPS (ROBUX, REANIMAÇÃO E TELAS INVASIVAS)
+-- MOTOR DE BLOQUEIO E FECHAMENTO DE POP-UPS (ROBUX & TELAS)
 -- ══════════════════════════════════════════════════════════════
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- 1. Hook Preventivo: Bloqueia chamadas de compra de Robux antes que o pop-up sequer apareça na tela
+pcall(function()
+    if hookmetamethod then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if Config.AutoClosePopups and (self == MarketplaceService or (typeof(self) == "Instance" and self.ClassName == "MarketplaceService")) then
+                if method == "PromptProductPurchase" or method == "PromptPurchase" or method == "PromptGamePassPurchase" or method == "PromptRobloxPurchase" then
+                    return
+                end
+            end
+            return oldNamecall(self, ...)
+        end))
+    end
+end)
+
+pcall(function()
+    if hookfunction and MarketplaceService then
+        local oldPPP = MarketplaceService.PromptProductPurchase
+        hookfunction(MarketplaceService.PromptProductPurchase, newcclosure(function(self, ...)
+            if Config.AutoClosePopups then return end
+            return oldPPP(self, ...)
+        end))
+        local oldPP = MarketplaceService.PromptPurchase
+        hookfunction(MarketplaceService.PromptPurchase, newcclosure(function(self, ...)
+            if Config.AutoClosePopups then return end
+            return oldPP(self, ...)
+        end))
+        local oldPGP = MarketplaceService.PromptGamePassPurchase
+        hookfunction(MarketplaceService.PromptGamePassPurchase, newcclosure(function(self, ...)
+            if Config.AutoClosePopups then return end
+            return oldPGP(self, ...)
+        end))
+    end
+end)
+
+-- 2. Fechamento forçado de qualquer PurchasePrompt remanescente no CoreGui
 local function closeRobloxPurchasePrompt()
     pcall(function()
         local coreGui = game:GetService("CoreGui")
@@ -336,19 +413,38 @@ local function closeRobloxPurchasePrompt()
         
         local candidates = {}
         local ppa = coreGui:FindFirstChild("PurchasePromptApp")
-        if ppa then table.insert(candidates, ppa) end
+        if ppa then 
+            pcall(function() ppa.Enabled = false end)
+            table.insert(candidates, ppa) 
+        end
         local pp = coreGui:FindFirstChild("PurchasePrompt")
-        if pp then table.insert(candidates, pp) end
+        if pp then 
+            pcall(function() pp.Enabled = false end)
+            table.insert(candidates, pp) 
+        end
         local rbxGui = coreGui:FindFirstChild("RobloxGui")
         if rbxGui then
             local rbxPP = rbxGui:FindFirstChild("PurchasePrompt")
-            if rbxPP then table.insert(candidates, rbxPP) end
+            if rbxPP then 
+                pcall(function() rbxPP.Enabled = false end)
+                table.insert(candidates, rbxPP) 
+            end
         end
         for _, ch in ipairs(coreGui:GetChildren()) do
             local chName = ch.Name:lower()
             if (chName:find("purchase") or chName:find("prompt")) and ch ~= ppa and ch ~= pp then
+                pcall(function() ch.Enabled = false end)
                 table.insert(candidates, ch)
             end
+        end
+        
+        -- Envia tecla Escape para cancelar qualquer prompt aberto nativamente
+        if vim and #candidates > 0 then
+            pcall(function()
+                vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                task.wait(0.04)
+                vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+            end)
         end
         
         for _, container in ipairs(candidates) do
@@ -400,7 +496,7 @@ local function closeRobloxPurchasePrompt()
                                 local center = desc.AbsolutePosition + (desc.AbsoluteSize / 2)
                                 if vim then
                                     vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
-                                    task.wait(0.01)
+                                    task.wait(0.04)
                                     vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
                                 elseif VirtualUser then
                                     VirtualUser:CaptureController()
@@ -737,6 +833,8 @@ local ClickToggle = nil
 local RebirthToggle = nil
 local WinToggle = nil
 local EndlessToggle = nil
+local AntiAfkToggle = nil
+local AutoClosePopupsToggle = nil
 
 pcall(function()
     local ls = LocalPlayer:WaitForChild("leaderstats", 5)
@@ -1489,7 +1587,7 @@ local function onCharacterLoadedForEndless(char)
     local hum = char:WaitForChild("Humanoid", 5)
     if hum then
         local diedConn = hum.Died:Connect(function()
-            if Config.AutoEndless and (wasInsideEndless or isInsideEndless() or endlessEnteredCFrame ~= nil) then
+            if Config.AutoEndless then
                 endlessDeathTick = os.clock()
                 isDeadWaiting = true
                 wasInsideEndless = false
@@ -1677,28 +1775,39 @@ spawnThread(function()
                     wasInsideEndless = true
                 end
                 
+                -- Se morreu ou se a tela de revive do jogo apareceu
                 if isDead and not isDeadWaiting then
-                    if wasInsideEndless or isInsideEndless() or endlessEnteredCFrame ~= nil then
-                        endlessDeathTick = os.clock()
-                        isDeadWaiting = true
-                        wasInsideEndless = false
-                        endlessEnteredCFrame = nil
-                    end
+                    endlessDeathTick = os.clock()
+                    isDeadWaiting = true
+                    wasInsideEndless = false
+                    endlessEnteredCFrame = nil
                 end
                 
+                -- Delay estrito de 14 segundos pós-morte no Endless
                 if isDeadWaiting then
                     endlessEnteredCFrame = nil
                     outsideArenaStart = os.clock()
                     local elapsed = os.clock() - endlessDeathTick
-                    if elapsed >= 15.0 and hum and hum.Health > 0 and hrp and not isReviveActive and not isInsideEndless() then
-                        isDeadWaiting = false
-                        outsideArenaStart = os.clock()
-                    else
+                    local remaining = math.max(0, math.ceil(14.0 - elapsed))
+                    
+                    if elapsed < 14.0 then
                         if EndlessStatsCard and EndlessStatsCard.Update then
-                            EndlessStatsCard.Update(string.format("Respawn em %ds...", math.max(0, math.floor(15 - elapsed))), Color3.fromRGB(255, 185, 55))
+                            EndlessStatsCard.Update(string.format("Delay pós-morte: %ds...", remaining), Color3.fromRGB(255, 185, 55))
                         end
                         task.wait(0.25)
                         return
+                    else
+                        -- Já passaram 14 segundos! Espera o personagem estar 100% vivo e pronto
+                        if hum and hum.Health > 0 and hrp and not isReviveActive and not isInsideEndless() then
+                            isDeadWaiting = false
+                            outsideArenaStart = os.clock()
+                            if EndlessStatsCard and EndlessStatsCard.Update then
+                                EndlessStatsCard.Update("Delay 14s concluído! Entrando...", Color3.fromRGB(56, 122, 255))
+                            end
+                        else
+                            task.wait(0.25)
+                            return
+                        end
                     end
                 end
                 
@@ -2909,15 +3018,14 @@ createToggle(EndlessTab, "Auto Fechar Reanimação (11 Robux)", Config.AutoClose
     saveConfig()
 end)
 
--- ── ABA 5: CONFIGURAÇÕES & SAÍDA ──────────────────────────────
 createSectionHeader(ConfigTab, "⚙️ CONFIGURAÇÕES GERAIS")
 
-createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
+AntiAfkToggle = createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
     Config.AntiAfk = val
     saveConfig()
 end)
 
-createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Telas)", Config.AutoClosePopups, function(val)
+AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Telas)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
     saveConfig()
 end)
@@ -2944,10 +3052,12 @@ end)
 
 createButton(ConfigTab, "🔄 Recarregar Configurações do Arquivo", false, function()
     if loadConfig() then
-        if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick, true) end
-        if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth, true) end
-        if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin, true) end
-        if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless, true) end
+        if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick == true, true) end
+        if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
+        if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
+        if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
+        if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
+        if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "🔄 Configurações Recarregadas!",
@@ -2977,6 +3087,19 @@ createButton(ConfigTab, "❌ Descarregar / Fechar Script", false, function()
         getgenv().SuperHeroEvolutionHubCleanup()
     end
 end)
+
+-- Aplica visualmente os estados carregados a todos os botões e toggles
+local function applyLoadedConfig()
+    pcall(function()
+        if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick == true, true) end
+        if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
+        if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
+        if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
+        if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
+        if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
+    end)
+end
+applyLoadedConfig()
 
 -- Notificação se tiver restaurado após Server Hop
 if ConfigRestoredAfterHop then
