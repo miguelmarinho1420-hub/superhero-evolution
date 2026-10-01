@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790882584
+local SCRIPT_VERSION_TIMESTAMP = 1790883584
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -129,6 +129,7 @@ local Config = {
     TrainZoneFilter = "free",
     SelectedTrainZone = "auto",
     TrainPositioning = "melee",
+    TrainDistanceOffset = 5.0,
     AutoTrain = false,
     AutoRebirth = false,
     RebirthDelay = 1.5,
@@ -833,6 +834,7 @@ saveConfig = function()
                 TrainZoneFilter = Config.TrainZoneFilter,
                 SelectedTrainZone = Config.SelectedTrainZone,
                 TrainPositioning = Config.TrainPositioning,
+                TrainDistanceOffset = Config.TrainDistanceOffset,
                 AutoTrain = Config.AutoTrain,
                 AutoRebirth = Config.AutoRebirth,
                 SelectedProgWorld = Config.SelectedProgWorld,
@@ -3484,6 +3486,10 @@ createDropdown(TreinoTab, "", TrainPositioningOptions, Config.TrainPositioning, 
     Config.TrainPositioning = posId
 end)
 
+createSlider(TreinoTab, "Distância no Pad (Modo A Distância)", 2.0, 8.0, Config.TrainDistanceOffset or 5.0, " studs", true, function(val)
+    Config.TrainDistanceOffset = val
+end)
+
 createLabel(TreinoTab, "Mundo de Treino:")
 
 local trainZoneDropdown = nil
@@ -3544,137 +3550,120 @@ local function isPaidOrRobuxZone(inst)
     return false
 end
 
-local cachedBagZoneId = nil
-local cachedBag = nil
-local cachedHitbox = nil
-local cachedModel = nil
-
-local function findTrainingBag(worldNum, zoneId)
-    local mapName = "Map"
-    if worldNum == 2 then mapName = "MapTest"
-    elseif worldNum and worldNum >= 3 then mapName = "Map" .. worldNum end
-    
-    local map = workspace:FindFirstChild(mapName) or getCurrentMap()
-    if not map then return nil, nil end
-    
-    local targetName = "TrainingZone" .. tostring(zoneId)
-    for _, d in ipairs(map:GetDescendants()) do
-        if d:IsA("Model") and (d.Name == targetName or d:GetAttribute("ZoneId") == tostring(zoneId)) then
-            local bag = d:FindFirstChild("PunchingBag")
-            local hb = d:FindFirstChild("Hitbox")
-            if bag or hb then
-                return bag, hb, d
-            end
-        end
-    end
-    return nil, nil
-end
-
 local ownedGamepassesCache = {}
 
-local function getBestUnlockedZone(specificWorld, filterType)
+local function ownsGamepass(gamepassId)
+    if not gamepassId then return false end
+    if ownedGamepassesCache[gamepassId] ~= nil then
+        return ownedGamepassesCache[gamepassId]
+    end
+    local s, res = pcall(function()
+        return MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, gamepassId)
+    end)
+    local owns = (s and res == true)
+    ownedGamepassesCache[gamepassId] = owns
+    return owns
+end
+
+local function getPlayerRebirths()
     local rebirths = 0
     pcall(function()
         local ls = LocalPlayer:FindFirstChild("leaderstats")
         local r = ls and ls:FindFirstChild("Rebirths")
         if r then rebirths = tonumber(r.Value) or 0 end
     end)
+    if rebirths <= 0 then
+        pcall(function()
+            local DC = require(ReplicatedStorage.Client.DataController)
+            local d = DC and DC.getData and DC.getData()
+            if d then
+                rebirths = tonumber(d.Rebirths or d.Rebirth or d.rebirths) or rebirths
+            end
+        end)
+    end
+    return rebirths
+end
+
+local function findTrainingBag(worldNum, zoneId)
+    local targetZoneStr = tostring(zoneId)
+    local targetModelName = "TrainingZone" .. targetZoneStr
+    
+    -- 1. Busca rápida em CollectionService
+    for _, tz in ipairs(CollectionService:GetTagged("TrainingZone")) do
+        if tz:GetAttribute("ZoneId") == targetZoneStr or tz.Name == targetModelName then
+            local bag = tz:FindFirstChild("PunchingBag")
+            local hb = tz:FindFirstChild("Hitbox")
+            if bag or hb then
+                return bag, hb, tz
+            end
+        end
+    end
+    
+    -- 2. Busca na hierarquia do mapa correspondente
+    local mapName = (worldNum == 1 and "Map") or (worldNum == 2 and "MapTest") or ("Map" .. tostring(worldNum))
+    local map = workspace:FindFirstChild(mapName) or getCurrentMap()
+    if map then
+        local tzFolder = map:FindFirstChild("TrainingZone") or (map:FindFirstChild("Lobby") and map.Lobby:FindFirstChild("Decor") and map.Lobby.Decor:FindFirstChild("Extra"))
+        if tzFolder then
+            local tz = tzFolder:FindFirstChild(targetModelName)
+            if tz then
+                local bag = tz:FindFirstChild("PunchingBag")
+                local hb = tz:FindFirstChild("Hitbox")
+                if bag or hb then return bag, hb, tz end
+            end
+        end
+        for _, d in ipairs(map:GetDescendants()) do
+            if d:IsA("Model") and (d.Name == targetModelName or d:GetAttribute("ZoneId") == targetZoneStr) then
+                local bag = d:FindFirstChild("PunchingBag")
+                local hb = d:FindFirstChild("Hitbox")
+                if bag or hb then
+                    return bag, hb, d
+                end
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
+local function getBestUnlockedZone(specificWorld, filterType)
+    local rebirths = getPlayerRebirths()
+    local targetFilter = filterType or Config.TrainZoneFilter or "all"
     
     local targetWorldNum = nil
     if specificWorld and specificWorld ~= "auto" then
         targetWorldNum = tonumber(string.match(tostring(specificWorld), "%d+"))
-    else
-        local cur = getCurrentMap()
-        if cur then
-            if cur.Name == "MapTest" then
-                targetWorldNum = 2
-            elseif cur.Name == "Map" then
-                targetWorldNum = 1
-            else
-                targetWorldNum = tonumber(string.match(cur.Name, "%d+")) or 1
-            end
-        else
-            targetWorldNum = 1
-        end
     end
     
-    local targetFilter = filterType or Config.TrainZoneFilter or "free"
     local best = nil
     local maxMult = -1
-
-    -- 1. Verifica diretamente nas TrainingZones do mapa atual (100% fiel ao status visual do jogo)
-    local curMap = getCurrentMap()
-    if curMap then
-        for _, d in ipairs(curMap:GetDescendants()) do
-            if d:IsA("Model") and d.Name:match("^TrainingZone(%d+)$") then
-                local zId = tonumber(d.Name:match("^TrainingZone(%d+)$"))
-                local isRobux = isPaidOrRobuxZone(d)
-                local filterOk = (targetFilter == "all") or (targetFilter == "free" and not isRobux) or (targetFilter == "robux" and isRobux)
-                if filterOk then
-                    local isUnlocked = false
-                    local mult = 0
-                    local hb = d:FindFirstChild("Hitbox")
-                    local bb = hb and hb:FindFirstChild("TrainingZoneBillboard")
-                    if bb then
-                        local statusLbl = bb:FindFirstChild("StatusLabel")
-                        if statusLbl and statusLbl.Visible and (statusLbl.Text == "Unlocked" or statusLbl.Text == "Desbloqueado") then
-                            isUnlocked = true
-                        end
-                        local multLbl = bb:FindFirstChild("MultiplierLabel")
-                        if multLbl and multLbl.Text then
-                            local mNum = tonumber(string.match(multLbl.Text:gsub(",", "."), "(%d+%.?%d*)"))
-                            if mNum then
-                                if multLbl.Text:lower():find("m") then mNum = mNum * 1000000
-                                elseif multLbl.Text:lower():find("k") then mNum = mNum * 1000 end
-                                mult = mNum
-                            end
-                        end
-                    end
-                    if mult <= 0 or not isUnlocked then
-                        for _, z in ipairs(AllTrainingZones) do
-                            if tonumber(z.Id) == zId then
-                                if mult <= 0 then mult = z.Multiplier or 1 end
-                                if not isUnlocked and (z.Rebirth or 0) <= rebirths and not z.IsRobux then
-                                    isUnlocked = true
-                                end
-                                break
-                            end
-                        end
-                    end
-                    if isUnlocked and mult > maxMult then
-                        maxMult = mult
-                        for _, z in ipairs(AllTrainingZones) do
-                            if tonumber(z.Id) == zId then
-                                best = z
-                                break
-                            end
-                        end
-                        if not best then
-                            best = {Id = tostring(zId), Name = "Zona " .. zId, World = targetWorldNum or 1, Multiplier = mult}
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- 2. Fallback caso não tenha encontrado diretamente pelo mapa: busca em AllTrainingZones
-    if not best then
-        for _, z in ipairs(AllTrainingZones) do
-            if z.Id ~= "auto" and (not targetWorldNum or z.World == targetWorldNum) then
-                local isAvailable = false
+    
+    -- Varre todas as zonas do AllTrainingZones (Mundos 1 a 9)
+    for _, z in ipairs(AllTrainingZones) do
+        if z.Id ~= "auto" then
+            local worldMatches = (targetWorldNum == nil) or (z.World == targetWorldNum)
+            if worldMatches then
+                local isAllowed = false
                 if z.IsRobux then
                     if targetFilter == "all" or targetFilter == "robux" then
-                        isAvailable = false
+                        if z.GamepassId and ownsGamepass(z.GamepassId) then
+                            isAllowed = true
+                        end
                     end
                 else
                     if targetFilter == "all" or targetFilter == "free" then
-                        isAvailable = ((z.Rebirth or 0) <= rebirths)
+                        local req = z.Rebirth or 0
+                        if rebirths >= req then
+                            isAllowed = true
+                        end
                     end
                 end
-                if isAvailable and (z.Multiplier or 0) > maxMult then
-                    maxMult = z.Multiplier or 0
-                    best = z
+                
+                if isAllowed then
+                    local mult = z.Multiplier or 0
+                    if mult > maxMult then
+                        maxMult = mult
+                        best = z
+                    end
                 end
             end
         end
@@ -3913,6 +3902,9 @@ spawnThread(function()
     local lastTrainTouch = 0
     local lastTrainVClick = 0
     local currentTrainedBag = nil
+    local lastPositionedMode = nil
+    local lastPositionedDist = nil
+    local lastPositionedZoneId = nil
     local isPositioned = false
 
     while true do
@@ -3945,6 +3937,7 @@ spawnThread(function()
                 local curMap = getCurrentMap()
                 if not curMap or curMap.Name ~= mapName then
                     if RemoteRequestWorldChange then
+                        print(string.format("[Auto Treino] Mudando para o mundo da melhor zona (Mundo %d - %s)...", wNum, mapName))
                         RemoteRequestWorldChange:InvokeServer(wNum)
                         task.wait(1.5)
                         isPositioned = false
@@ -3964,31 +3957,46 @@ spawnThread(function()
                         end
                     end
                     
-                    local bagPivot = (bag and bag:GetPivot()) or (hitbox and hitbox.CFrame)
-                    local bagPos = bagPivot.Position
-                    local facingVec = (bag and bagPivot.LookVector) or (hitbox and hitbox.CFrame.LookVector) or Vector3.new(0, 0, 1)
-                    if facingVec.Magnitude < 0.1 then facingVec = Vector3.new(0, 0, 1) end
+                    local padCenter = (hitbox and hitbox.Position) or (bag and bag:GetPivot().Position)
+                    local bagTargetPoint = (bag and bag:FindFirstChild("Bag") and bag.Bag:FindFirstChild("TargetPoint")) or (bag and bag:FindFirstChild("Bag") and bag.Bag:FindFirstChild("Pivot"))
+                    local bagPos = (bagTargetPoint and bagTargetPoint.Position) or (bag and bag:GetPivot().Position) or padCenter
                     
-                    local floorY = (hitbox and (hitbox.Position.Y + 2.5)) or (hrp.Position.Y)
-                    
-                    -- Posicionamento: Corpo a Corpo (colado no saco) ou A Distância (na borda da hitbox/pad)
-                    local distOffset = 1.8
-                    if Config.TrainPositioning == "distance" then
-                        distOffset = 7.0
+                    -- Direção horizontal calculada a partir da orientação do pad
+                    local forward = Vector3.new(0, 0, 1)
+                    if hitbox then
+                        local hLook = hitbox.CFrame.LookVector
+                        local flatLook = Vector3.new(hLook.X, 0, hLook.Z)
+                        if flatLook.Magnitude > 0.1 then
+                            forward = flatLook.Unit
+                        end
                     end
                     
-                    local standPos = Vector3.new(bagPos.X + facingVec.X * distOffset, floorY, bagPos.Z + facingVec.Z * distOffset)
+                    local padRadius = (hitbox and math.min(hitbox.Size.X, hitbox.Size.Z) / 2) or 6.0
+                    if padRadius < 2 then padRadius = 6.0 end
+                    local maxSafeDist = math.max(1.8, padRadius - 0.8)
+                    
+                    -- Distância: Melee (colado no saco) vs A Distância (na borda da hitbox/pad, perfeitamente em cima do pad)
+                    local targetDist = 1.8
+                    if Config.TrainPositioning == "distance" then
+                        targetDist = math.clamp(Config.TrainDistanceOffset or (maxSafeDist - 0.5), 2.2, maxSafeDist)
+                    end
+                    
+                    local floorY = (hitbox and (hitbox.Position.Y + (hitbox.Size.Y / 2) + 2.6)) or (hrp.Position.Y)
+                    local standPos = Vector3.new(padCenter.X + forward.X * targetDist, floorY, padCenter.Z + forward.Z * targetDist)
                     local targetCF = CFrame.lookAt(standPos, Vector3.new(bagPos.X, floorY, bagPos.Z))
                     
-                    -- TELEPORTE INTELIGENTE: Teleporta apenas uma vez; se sair (> 3.5 studs de distância), teleporta de volta!
+                    -- Se mudou de saco, de modo de ataque, de distância ou de zona, reposiciona imediatamente
                     local targetObj = bag or hitbox
-                    if currentTrainedBag ~= targetObj then
+                    if currentTrainedBag ~= targetObj or lastPositionedMode ~= Config.TrainPositioning or lastPositionedDist ~= targetDist or lastPositionedZoneId ~= targetZone.Id then
                         currentTrainedBag = targetObj
+                        lastPositionedMode = Config.TrainPositioning
+                        lastPositionedDist = targetDist
+                        lastPositionedZoneId = targetZone.Id
                         isPositioned = false
                     end
                     
                     local currentDist = (hrp.Position - standPos).Magnitude
-                    if not isPositioned or currentDist > 3.5 then
+                    if not isPositioned or currentDist > 2.8 then
                         hrp.CFrame = targetCF
                         hrp.AssemblyLinearVelocity = Vector3.zero
                         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -3996,10 +4004,10 @@ spawnThread(function()
                     end
                     
                     local now = os.clock()
-                    if hitbox and firetouchinterest and (now - lastTrainTouch >= 1.5) then
+                    -- Touch interest contínuo para manter registro no servidor (sem enviar 1 para não cortar a conexão da zona)
+                    if hitbox and firetouchinterest and (now - lastTrainTouch >= 1.0) then
                         lastTrainTouch = now
                         firetouchinterest(hrp, hitbox, 0)
-                        firetouchinterest(hrp, hitbox, 1)
                     end
                     
                     if RemoteRequestTrain then RemoteRequestTrain:FireServer() end
@@ -4015,6 +4023,9 @@ spawnThread(function()
         else
             isPositioned = false
             currentTrainedBag = nil
+            lastPositionedMode = nil
+            lastPositionedDist = nil
+            lastPositionedZoneId = nil
         end
         local cps = math.clamp(Config.ClickCPS or 5, 1, 50)
         task.wait(1 / cps)
@@ -6916,7 +6927,7 @@ local function handleUniversalCharacterRespawn(newChar)
                     print("[Respawn Recovery] Retornando ao saco de treino após respawn...")
                     local curChar, curHrp = waitForCharacterAlive(4)
                     if curHrp then
-                        curHrp.CFrame = hitbox.CFrame * CFrame.new(0, 0, 7.5)
+                        curHrp.CFrame = hitbox.CFrame + Vector3.new(0, 2.5, 0)
                     end
                 end
             end
