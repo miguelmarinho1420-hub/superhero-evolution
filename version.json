@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790880754,
-  "commit": "76dc558",
-  "message": "feat: remover aba Mundos da interface conforme solicitado",
-  "date": "2026-10-01 15:52:36"
+  "timestamp": 1790880952,
+  "commit": "ddb2956",
+  "message": "fix: exibir apenas os tempos do Boss e da Raid no card de eventos sem status ativo",
+  "date": "2026-10-01 15:55:54"
 }
