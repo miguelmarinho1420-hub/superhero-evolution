@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790894384
+local SCRIPT_VERSION_TIMESTAMP = 1790894553
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -118,9 +118,66 @@ local Config = {
     -- Utilitários & Pop-ups
     AutoClosePopups = true, -- Auto fechar pop-ups de Robux / Reanimação e telas
     AntiAfk = true,
+    
+    -- 5. Salvamento de Estado & Server Hop
+    AutoSaveConfig = true,
 }
 
 getgenv().SuperHeroEvolutionHubConfig = Config
+
+-- ══════════════════════════════════════════════════════════════
+-- SISTEMA DE PERSISTÊNCIA DE CONFIGURAÇÕES & ESTADO
+-- ══════════════════════════════════════════════════════════════
+local CONFIG_FILE = "SuperHeroEvolution_Config.json"
+local ConfigRestoredAfterHop = false
+
+local function saveConfig()
+    pcall(function()
+        if Config.AutoSaveConfig == false then return end
+        if not (writefile and HttpService) then return end
+        local state = {
+            FastClick = Config.FastClick,
+            ClickCPS = Config.ClickCPS,
+            AutoRebirth = Config.AutoRebirth,
+            RebirthDelay = Config.RebirthDelay,
+            SelectedProgWorld = Config.SelectedProgWorld,
+            SelectedProgStage = Config.SelectedProgStage,
+            AutoWin = Config.AutoWin,
+            CombatTime = Config.CombatTime,
+            WinGlideSpeed = Config.WinGlideSpeed,
+            AutoEndless = Config.AutoEndless,
+            EndlessWorld = Config.EndlessWorld,
+            AutoHopBlocked = Config.AutoHopBlocked,
+            AutoClosePopups = Config.AutoClosePopups,
+            AntiAfk = Config.AntiAfk,
+            AutoSaveConfig = Config.AutoSaveConfig,
+            SavedAt = os.time(),
+        }
+        writefile(CONFIG_FILE, HttpService:JSONEncode(state))
+    end)
+end
+
+local function loadConfig()
+    local ok = pcall(function()
+        if not (readfile and isfile and isfile(CONFIG_FILE) and HttpService) then return end
+        local raw = readfile(CONFIG_FILE)
+        if not raw or #raw < 5 then return end
+        local data = HttpService:JSONDecode(raw)
+        if type(data) ~= "table" then return end
+        
+        for k, v in pairs(data) do
+            if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
+                Config[k] = v
+            end
+        end
+        ConfigRestoredAfterHop = true
+        return true
+    end)
+    return ConfigRestoredAfterHop
+end
+
+-- Carrega o estado salvo imediatamente para reativar as funções ativas pós-Server Hop
+loadConfig()
 
 -- Tabelas de Mundos
 local WorldsData = {
@@ -169,20 +226,27 @@ local function spawnThread(func)
     return thread
 end
 
--- Teleport Helpers
+-- Teleport Helpers & Execução Automática Pós-Server Hop
 local function queueScriptOnTeleport()
     pcall(function()
-        local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+        saveConfig()
+        local queueTeleport = (syn and syn.queue_on_teleport) 
+            or queue_on_teleport 
+            or (fluxus and fluxus.queue_on_teleport)
+            or (getgenv and getgenv().queue_on_teleport)
+            
         if queueTeleport then
             local qCode = [[
                 task.spawn(function()
                     repeat task.wait(0.5) until game:IsLoaded()
-                    task.wait(2)
+                    task.wait(1.5)
                     pcall(function()
-                        if readfile and isfile and isfile("hub.lua") then
-                            loadstring(readfile("hub.lua"))()
-                        elseif readfile and isfile and isfile("script.lua") then
+                        if readfile and isfile and isfile("script.lua") then
                             loadstring(readfile("script.lua"))()
+                        elseif readfile and isfile and isfile("hub.lua") then
+                            loadstring(readfile("hub.lua"))()
+                        else
+                            loadstring(game:HttpGet("https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/script.lua?t=" .. tostring(os.time())))()
                         end
                     end)
                 end)
@@ -195,9 +259,19 @@ queueScriptOnTeleport()
 
 pcall(function()
     local tpConn = LocalPlayer.OnTeleport:Connect(function()
+        saveConfig()
         queueScriptOnTeleport()
     end)
     table.insert(ActiveConnections, tpConn)
+end)
+
+pcall(function()
+    local pConn = Players.PlayerRemoving:Connect(function(p)
+        if p == LocalPlayer then
+            saveConfig()
+        end
+    end)
+    table.insert(ActiveConnections, pConn)
 end)
 
 local function serverHop()
@@ -659,6 +733,8 @@ local WinStatsCard = nil
 local EndlessStatsCard = nil
 local HeaderStats = nil
 local MiniStats = nil
+local ClickToggle = nil
+local RebirthToggle = nil
 local WinToggle = nil
 local EndlessToggle = nil
 
@@ -2731,12 +2807,14 @@ createSectionHeader(ClickTab, "⚡ AUTO CLICK (OTIMIZADO - ZERO LAG)")
 
 ClickStatsCard = createInfoCard(ClickTab, "📊 Cliques Efetuados", "Clicks: 0", Themes.Accent2)
 
-createToggle(ClickTab, "Ativar Auto Click", Config.FastClick, function(val)
+ClickToggle = createToggle(ClickTab, "Ativar Auto Click", Config.FastClick, function(val)
     Config.FastClick = val
+    saveConfig()
 end)
 
 createSlider(ClickTab, "Velocidade de Cliques (CPS)", 1, 50, Config.ClickCPS, " CPS", false, function(val)
     Config.ClickCPS = val
+    saveConfig()
 end)
 
 -- ── ABA 2: AUTO REBIRTH ────────────────────────────────────────
@@ -2744,12 +2822,14 @@ createSectionHeader(RebirthTab, "🔄 AUTO REBIRTH")
 
 RebirthStatsCard = createInfoCard(RebirthTab, "📊 Estatísticas de Rebirth", "Sessão: 0 | Total: 0", Themes.Accent2)
 
-createToggle(RebirthTab, "Ativar Auto Rebirth", Config.AutoRebirth, function(val)
+RebirthToggle = createToggle(RebirthTab, "Ativar Auto Rebirth", Config.AutoRebirth, function(val)
     Config.AutoRebirth = val
+    saveConfig()
 end)
 
 createSlider(RebirthTab, "Intervalo de Rebirth", 0.5, 5.0, Config.RebirthDelay, "s", true, function(val)
     Config.RebirthDelay = val
+    saveConfig()
 end)
 
 -- ── ABA 3: AUTO WIN ────────────────────────────────────────────
@@ -2769,12 +2849,14 @@ local worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.Selected
         stageProgDropdown.UpdateOptions(opts, def)
         Config.SelectedProgStage = def
     end
+    saveConfig()
 end)
 
 createLabel(WinTab, "2. Até qual Estágio Progredir / Vencer:")
 
 stageProgDropdown = createDropdown(WinTab, "", getStagesOptionsForWorld(Config.SelectedProgWorld), Config.SelectedProgStage, function(stageId)
     Config.SelectedProgStage = stageId
+    saveConfig()
 end)
 
 WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.AutoWin, function(val)
@@ -2783,14 +2865,17 @@ WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.
         Config.AutoEndless = false
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(false, true) end
     end
+    saveConfig()
 end)
 
 createSlider(WinTab, "Tempo de Espera por Estágio", 0.05, 3.0, Config.CombatTime, "s", true, function(val)
     Config.CombatTime = val
+    saveConfig()
 end)
 
 createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 300, Config.WinGlideSpeed, " Speed", false, function(val)
     Config.WinGlideSpeed = val
+    saveConfig()
 end)
 
 -- ── ABA 4: AUTO ENDLESS ────────────────────────────────────────
@@ -2802,6 +2887,7 @@ createLabel(EndlessTab, "Selecione o Mundo do CO-OP:")
 
 createDropdown(EndlessTab, "", EndlessWorldsList, Config.EndlessWorld, function(worldId)
     Config.EndlessWorld = worldId
+    saveConfig()
 end)
 
 EndlessToggle = createToggle(EndlessTab, "Auto CO-OP Sem Fim", Config.AutoEndless, function(val)
@@ -2810,14 +2896,17 @@ EndlessToggle = createToggle(EndlessTab, "Auto CO-OP Sem Fim", Config.AutoEndles
         Config.AutoWin = false
         if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
     end
+    saveConfig()
 end)
 
 createToggle(EndlessTab, "Auto Hop se Bloqueado (+1 min)", Config.AutoHopBlocked, function(val)
     Config.AutoHopBlocked = val
+    saveConfig()
 end)
 
 createToggle(EndlessTab, "Auto Fechar Reanimação (11 Robux)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
+    saveConfig()
 end)
 
 -- ── ABA 5: CONFIGURAÇÕES & SAÍDA ──────────────────────────────
@@ -2825,10 +2914,60 @@ createSectionHeader(ConfigTab, "⚙️ CONFIGURAÇÕES GERAIS")
 
 createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
     Config.AntiAfk = val
+    saveConfig()
 end)
 
 createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Telas)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
+    saveConfig()
+end)
+
+createSectionHeader(ConfigTab, "💾 SALVAMENTO DE ESTADO & SERVER HOP")
+
+createInfoCard(ConfigTab, "📁 Arquivo de Configuração", "SuperHeroEvolution_Config.json", Themes.Success)
+
+createToggle(ConfigTab, "Salvar Estado Automaticamente", Config.AutoSaveConfig, function(val)
+    Config.AutoSaveConfig = val
+    saveConfig()
+end)
+
+createButton(ConfigTab, "💾 Salvar Configurações Agora", true, function()
+    saveConfig()
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "💾 Salvo com Sucesso!",
+            Text = "Estado atual das funções salvo no arquivo!",
+            Duration = 3
+        })
+    end)
+end)
+
+createButton(ConfigTab, "🔄 Recarregar Configurações do Arquivo", false, function()
+    if loadConfig() then
+        if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick, true) end
+        if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth, true) end
+        if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin, true) end
+        if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless, true) end
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "🔄 Configurações Recarregadas!",
+                Text = "Funções e parâmetros restaurados do arquivo!",
+                Duration = 3
+            })
+        end)
+    end
+end)
+
+createButton(ConfigTab, "🌐 Forçar Server Hop (Trocar Servidor)", false, function()
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "🌐 Server Hop",
+            Text = "Salvando estado e conectando a novo servidor...",
+            Duration = 3
+        })
+    end)
+    saveConfig()
+    serverHop()
 end)
 
 createInfoCard(ConfigTab, "⌨️ Tecla de Atalho", "Pressione 'K' para Minimizar / Abrir", Themes.TextDim)
@@ -2838,6 +2977,20 @@ createButton(ConfigTab, "❌ Descarregar / Fechar Script", false, function()
         getgenv().SuperHeroEvolutionHubCleanup()
     end
 end)
+
+-- Notificação se tiver restaurado após Server Hop
+if ConfigRestoredAfterHop then
+    task.spawn(function()
+        task.wait(2.0)
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "💾 Estado Restaurado!",
+                Text = "Funções ativas recarregadas automaticamente pós-Server Hop!",
+                Duration = 6
+            })
+        end)
+    end)
+end
 
 -- ══════════════════════════════════════════════════════════════
 -- 7. CLEANUP FUNCTION & AUTO-UPDATE
