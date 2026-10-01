@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790880754
+local SCRIPT_VERSION_TIMESTAMP = 1790880952
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -745,27 +745,23 @@ local recordActivity = function() pauseAutomationsForEvent("Boss") end
 local restoreActivity = function() resumeAutomationsAfterEvent("Boss") end
 
 local function getEventTimersInfo()
-    local bossInfo = "N/A"
-    local raidInfo = "N/A"
+    local bossInfo = "--:--"
+    local raidInfo = "--:--"
     pcall(function()
         local gui = LocalPlayer:FindFirstChild("PlayerGui")
         local top = gui and gui:FindFirstChild("ScreenGui") and gui.ScreenGui:FindFirstChild("Top")
         local timers = top and top:FindFirstChild("Timers")
-        local bhb = top and top:FindFirstChild("BossHealthBar")
         
-        -- Raid Timer
+        -- Raid Timer (Apenas o tempo da Raid)
         if timers then
             local rt = timers:FindFirstChild("RaidTimer")
             if rt then
                 for _, d in ipairs(rt:GetDescendants()) do
                     if d:IsA("TextLabel") and d.Text and #d.Text > 0 then
                         local clean = d.Text:gsub("<[^>]+>", "")
-                        local rTime = clean:match("in:%s*([%d:]+)")
+                        local rTime = clean:match("in:%s*([%d:]+)") or clean:match("(%d+:%d+)") or clean:match("(%d+%s*s)")
                         if rTime then
                             raidInfo = rTime
-                            break
-                        elseif clean:lower():find("progress") or clean:lower():find("active") then
-                            raidInfo = "ATIVO!"
                             break
                         end
                     end
@@ -773,27 +769,16 @@ local function getEventTimersInfo()
             end
         end
         
-        -- Boss Timer
-        if bhb and bhb.Visible then
-            local nameL = bhb:FindFirstChild("Name", true)
-            local n = nameL and nameL.Text or "Boss"
-            n = n:gsub("<[^>]+>", "")
-            bossInfo = n .. " (ATIVO!)"
-        elseif timers then
+        -- Boss Timer (Apenas o tempo do Boss de Arena)
+        if timers then
             local bt = timers:FindFirstChild("BossFightTimer")
             if bt then
                 for _, d in ipairs(bt:GetDescendants()) do
                     if d:IsA("TextLabel") and d.Text and #d.Text > 0 then
                         local clean = d.Text:gsub("<[^>]+>", "")
-                        local bName = clean:match(">([%w%s]+)</font>") or clean:match("Next%s+([%w%s]+)%s+boss") or d.Text:match(">([%w%s]+)</font>")
-                        if bName then bName = bName:gsub("<[^>]+>", "") end
-                        local bTime = clean:match("in:%s*([%d:]+)")
+                        local bTime = clean:match("in:%s*([%d:]+)") or clean:match("(%d+:%d+)") or clean:match("(%d+%s*s)")
                         if bTime then
-                            bName = bName or "Boss"
-                            bossInfo = bName .. " (" .. bTime .. ")"
-                            break
-                        elseif clean:lower():find("progress") or clean:lower():find("active") then
-                            bossInfo = (bName or "Boss") .. " (ATIVO!)"
+                            bossInfo = bTime
                             break
                         end
                     end
@@ -5820,9 +5805,7 @@ spawnThread(function()
     while true do
         pcall(function()
             local bInfo, rInfo = getEventTimersInfo()
-            if isBossActive() then
-                EventStatusCard.Update(string.format("Boss de Arena ATIVO!\nPróxima Raid: %s", rInfo), Color3.fromRGB(255, 255, 255))
-            else
+            if EventStatusCard then
                 EventStatusCard.Update(string.format("Próximo Boss: %s\nPróxima Raid: %s", bInfo, rInfo), Color3.fromRGB(255, 255, 255))
             end
         end)
@@ -6071,7 +6054,6 @@ spawnThread(function()
                 if not wasFightingBoss then
                     wasFightingBoss = true
                     if Config.TitleBossEnabled and equipTitle then equipTitle(Config.TitleBoss) end
-                    if EventStatusCard then EventStatusCard.Update("Boss de Arena ATIVO!", Color3.fromRGB(255, 255, 255)) end
                 end
                 
                 -- Se o jogador ainda estiver longe da arena (> 150 studs), teleporta imediatamente
