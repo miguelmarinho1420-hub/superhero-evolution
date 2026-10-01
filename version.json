@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790881572,
-  "commit": "3bdf209",
-  "message": "feat: adicionar aba PvP e mover Config para a \u00faltima posi\u00e7\u00e3o da sidebar",
-  "date": "2026-10-01 16:06:14"
+  "timestamp": 1790882105,
+  "commit": "4f31a74",
+  "message": "feat: deixar Anti-AFK e Recompensa de Tempo de Jogo sempre ativos por padr\u00e3o e auditar todas as fun\u00e7\u00f5es de toggle",
+  "date": "2026-10-01 16:15:08"
 }
