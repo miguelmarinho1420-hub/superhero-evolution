@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790872204,
-  "commit": "a2a043b",
-  "message": "Sistema de auto-update em tempo real ativo: script recarrega automaticamente ao detectar nova versao",
-  "date": "2026-10-01 13:30:06"
+  "timestamp": 1790876587,
+  "commit": "ab47f65",
+  "message": "Desativacao geral padrao: todas as funcoes de auto e salvamento desligadas",
+  "date": "2026-10-01 14:43:10"
 }
