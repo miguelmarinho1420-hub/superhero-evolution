@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790881287
+local SCRIPT_VERSION_TIMESTAMP = 1790881398
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -1888,82 +1888,82 @@ local function getZonesForWorld(worldId, filterType)
 end
 
 local AllTitlesList = {
-    --  Chocar Ovos (Sorte)
-    {Id = "shell_breaker", Name = "Sidekick - +25% Sorte"},
-    {Id = "celestial", Name = "Beast Tamer - +75% Sorte"},
-    {Id = "hatchaholic", Name = "Beastmaster - +150% Sorte"},
-    {Id = "mother_of_dragons", Name = "Legion Commander - +300% Sorte"},
-    {Id = "beast_god", Name = "Beast God - +500% Sorte"},
+    -- 🥚 Chocar Ovos (Sorte)
+    {Id = "shell_breaker", Name = "Sidekick (+25% Sorte)"},
+    {Id = "celestial", Name = "Beast Tamer (+75% Sorte)"},
+    {Id = "hatchaholic", Name = "Beastmaster (+150% Sorte)"},
+    {Id = "mother_of_dragons", Name = "Legion Commander (+300% Sorte)"},
+    {Id = "beast_god", Name = "Beast God (+500% Sorte)"},
 
-    -- ️ Inimigos Derrotados (Dano)
-    {Id = "rising_star", Name = "Vigilante - +25% Dano"},
-    {Id = "vigilante", Name = "Crimefighter - +75% Dano"},
-    {Id = "infernal", Name = "City Guardian - +150% Dano"},
-    {Id = "worlds_strongest", Name = "Legendary Hero - +300% Dano"},
-    {Id = "the_immortal", Name = "The Immortal - +500% Dano"},
+    -- ⚔️ Inimigos Derrotados (Dano)
+    {Id = "rising_star", Name = "Vigilante (+25% Dano)"},
+    {Id = "vigilante", Name = "Crimefighter (+75% Dano)"},
+    {Id = "infernal", Name = "City Guardian (+150% Dano)"},
+    {Id = "worlds_strongest", Name = "Legendary Hero (+300% Dano)"},
+    {Id = "the_immortal", Name = "The Immortal (+500% Dano)"},
 
-    --  Bosses Derrotados (Vitórias & Tokens)
-    {Id = "giant_slayer", Name = "Villain Hunter - +15% Vitórias, +15% Tokens"},
-    {Id = "stormbringer", Name = "Nemesis - +45% Vitórias, +45% Tokens"},
-    {Id = "kingslayer", Name = "Villain Slayer - +90% Vitórias, +90% Tokens"},
-    {Id = "godslayer", Name = "Overlord Hunter - +180% Vitórias, +180% Tokens"},
-    {Id = "world_ender", Name = "Archenemy - +300% Vitórias, +300% Tokens"},
+    -- 💀 Bosses Derrotados (Vitórias & Tokens)
+    {Id = "giant_slayer", Name = "Villain Hunter (+15% Vitórias, +15% Tokens)"},
+    {Id = "stormbringer", Name = "Nemesis (+45% Vitórias, +45% Tokens)"},
+    {Id = "kingslayer", Name = "Villain Slayer (+90% Vitórias, +90% Tokens)"},
+    {Id = "godslayer", Name = "Overlord Hunter (+180% Vitórias, +180% Tokens)"},
+    {Id = "world_ender", Name = "Archenemy (+300% Vitórias, +300% Tokens)"},
 
-    --  Invasões / Raids (Tokens)
-    {Id = "breach_specialist", Name = "Team Player - +25% Tokens"},
-    {Id = "voidborn", Name = "Strike Leader - +75% Tokens"},
-    {Id = "last_one_standing", Name = "Raid Commander - +150% Tokens"},
-    {Id = "calamity", Name = "War Legend - +300% Tokens"},
-    {Id = "warbringer", Name = "Warbringer - +500% Tokens"},
+    -- 🛡️ Invasões / Raids (Tokens)
+    {Id = "breach_specialist", Name = "Team Player (+25% Tokens)"},
+    {Id = "voidborn", Name = "Strike Leader (+75% Tokens)"},
+    {Id = "last_one_standing", Name = "Raid Commander (+150% Tokens)"},
+    {Id = "calamity", Name = "War Legend (+300% Tokens)"},
+    {Id = "warbringer", Name = "Warbringer (+500% Tokens)"},
 
-    --  Coleção de Itens / Artefatos (Sorte)
-    {Id = "scavenger", Name = "Scavenger - +25% Sorte"},
-    {Id = "relic_hunter", Name = "Relic Hunter - +75% Sorte"},
-    {Id = "prismatic", Name = "Relic Curator - +150% Sorte"},
-    {Id = "vault_keeper", Name = "Vault Keeper - +300% Sorte"},
-    {Id = "ancient_one", Name = "Ancient One - +500% Sorte"},
+    -- 🏺 Coleção de Itens / Artefatos (Sorte)
+    {Id = "scavenger", Name = "Scavenger (+25% Sorte)"},
+    {Id = "relic_hunter", Name = "Relic Hunter (+75% Sorte)"},
+    {Id = "prismatic", Name = "Relic Curator (+150% Sorte)"},
+    {Id = "vault_keeper", Name = "Vault Keeper (+300% Sorte)"},
+    {Id = "ancient_one", Name = "Ancient One (+500% Sorte)"},
 
-    --  Ondas do Endless (Tokens)
-    {Id = "survivor", Name = "Survivor - +25% Tokens"},
-    {Id = "unyielding", Name = "Last Stand - +75% Tokens"},
-    {Id = "beyond_limits", Name = "Unbreakable - +150% Tokens"},
-    {Id = "the_endless", Name = "The Endless - +300% Tokens"},
-    {Id = "eternity", Name = "Eternity - +500% Tokens"},
+    -- 🌀 Ondas do Endless (Tokens)
+    {Id = "survivor", Name = "Survivor (+25% Tokens)"},
+    {Id = "unyielding", Name = "Last Stand (+75% Tokens)"},
+    {Id = "beyond_limits", Name = "Unbreakable (+150% Tokens)"},
+    {Id = "the_endless", Name = "The Endless (+300% Tokens)"},
+    {Id = "eternity", Name = "Eternity (+500% Tokens)"},
 
-    --  Inimigos do Endless (Velocidade de Ataque)
-    {Id = "crowd_control", Name = "Skirmisher - +25% Vel. Ataque"},
-    {Id = "horde_breaker", Name = "Horde Breaker - +75% Vel. Ataque"},
-    {Id = "walking_disaster", Name = "Wave Crusher - +150% Vel. Ataque"},
-    {Id = "extinction_event", Name = "Army Breaker - +300% Vel. Ataque"},
-    {Id = "apocalypse", Name = "Unstoppable Force - +500% Vel. Ataque"},
+    -- 👊 Inimigos do Endless (Velocidade de Ataque)
+    {Id = "crowd_control", Name = "Skirmisher (+25% Vel. Ataque)"},
+    {Id = "horde_breaker", Name = "Horde Breaker (+75% Vel. Ataque)"},
+    {Id = "walking_disaster", Name = "Wave Crusher (+150% Vel. Ataque)"},
+    {Id = "extinction_event", Name = "Army Breaker (+300% Vel. Ataque)"},
+    {Id = "apocalypse", Name = "Unstoppable Force (+500% Vel. Ataque)"},
 
-    --  Win Pads (Vitórias)
-    {Id = "victory_lap", Name = "Contender - +25% Vitórias"},
-    {Id = "repeat_offender", Name = "Champion - +75% Vitórias"},
-    {Id = "born_to_win", Name = "Unstoppable - +150% Vitórias"},
-    {Id = "unstoppable", Name = "Undefeated - +300% Vitórias"},
-    {Id = "hall_of_famer", Name = "Hall of Famer - +500% Vitórias"},
+    -- 🏆 Win Pads (Vitórias)
+    {Id = "victory_lap", Name = "Contender (+25% Vitórias)"},
+    {Id = "repeat_offender", Name = "Champion (+75% Vitórias)"},
+    {Id = "born_to_win", Name = "Unstoppable (+150% Vitórias)"},
+    {Id = "unstoppable", Name = "Undefeated (+300% Vitórias)"},
+    {Id = "hall_of_famer", Name = "Hall of Famer (+500% Vitórias)"},
 
-    --  Missões (Dano & Sorte)
-    {Id = "quester", Name = "Do-Gooder - +15% Dano, +15% Sorte"},
-    {Id = "taskmaster", Name = "Taskmaster - +45% Dano, +45% Sorte"},
-    {Id = "relentless", Name = "Relentless - +90% Dano, +90% Sorte"},
-    {Id = "living_legend", Name = "Living Legend - +180% Dano, +180% Sorte"},
-    {Id = "mythic_hero", Name = "Mythic Hero - +300% Dano, +300% Sorte"},
+    -- 📜 Missões (Dano & Sorte)
+    {Id = "quester", Name = "Do-Gooder (+15% Dano, +15% Sorte)"},
+    {Id = "taskmaster", Name = "Taskmaster (+45% Dano, +45% Sorte)"},
+    {Id = "relentless", Name = "Relentless (+90% Dano, +90% Sorte)"},
+    {Id = "living_legend", Name = "Living Legend (+180% Dano, +180% Sorte)"},
+    {Id = "mythic_hero", Name = "Mythic Hero (+300% Dano, +300% Sorte)"},
 
-    -- ️ PvP Kills (Dano)
-    {Id = "pvp_kills_1", Name = "Fighter - +25% Dano"},
-    {Id = "pvp_kills_2", Name = "Brawler - +75% Dano"},
-    {Id = "pvp_kills_3", Name = "Slayer - +150% Dano"},
-    {Id = "pvp_kills_4", Name = "Executioner - +300% Dano"},
-    {Id = "pvp_kills_5", Name = "Bloodthirsty - +500% Dano"},
+    -- ⚔️ PvP Kills (Dano)
+    {Id = "pvp_kills_1", Name = "Fighter (+25% Dano)"},
+    {Id = "pvp_kills_2", Name = "Brawler (+75% Dano)"},
+    {Id = "pvp_kills_3", Name = "Slayer (+150% Dano)"},
+    {Id = "pvp_kills_4", Name = "Executioner (+300% Dano)"},
+    {Id = "pvp_kills_5", Name = "Bloodthirsty (+500% Dano)"},
 
-    -- ️ PvP Vitórias (Vida)
-    {Id = "pvp_wins_1", Name = "Challenger - +10 Vida"},
-    {Id = "pvp_wins_2", Name = "Victor - +30 Vida"},
-    {Id = "pvp_wins_3", Name = "Conqueror - +75 Vida"},
-    {Id = "pvp_wins_4", Name = "Warlord - +150 Vida"},
-    {Id = "pvp_wins_5", Name = "Arena Champion - +300 Vida"}
+    -- 🛡️ PvP Vitórias (Vida)
+    {Id = "pvp_wins_1", Name = "Challenger (+10 Vida)"},
+    {Id = "pvp_wins_2", Name = "Victor (+30 Vida)"},
+    {Id = "pvp_wins_3", Name = "Conqueror (+75 Vida)"},
+    {Id = "pvp_wins_4", Name = "Warlord (+150 Vida)"},
+    {Id = "pvp_wins_5", Name = "Arena Champion (+300 Vida)"}
 }
 
 pcall(function()
@@ -1998,7 +1998,7 @@ pcall(function()
                         end
                         table.insert(parts, str)
                     end
-                    buffDesc = " - " .. table.concat(parts, ", ")
+                    buffDesc = " (" .. table.concat(parts, ", ") .. ")"
                 end
                 table.insert(temp, {
                     Id = tostring(id),
