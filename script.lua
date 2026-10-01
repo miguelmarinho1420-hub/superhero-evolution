@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790872204
+local SCRIPT_VERSION_TIMESTAMP = 1790876587
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -149,15 +149,15 @@ local Config = {
     SelectedEgg = "goldensteampunk_egg",
     AutoHatch = false,
     AutoHatchMultiple = false,
-    FastHatch = true,
+    FastHatch = false,
     SkipEggAnimation = false,
     HatchSpeed = 0.08,
     
     -- 5. Proteção de Tela & Popups
-    AutoClosePopups = true,
+    AutoClosePopups = false,
     
     -- 6. Movimento & Física
-    AntiAfk = true,                         -- ATIVADO
+    AntiAfk = false,
     WalkSpeedEnabled = false,
     WalkSpeed = 60,
     InfiniteJump = false,
@@ -169,7 +169,7 @@ local Config = {
     -- 7. Teleporte de Mundos & Conexão
     SelectedTeleportWorld = 1,
     AutoReconnect = false,
-    AutoSaveSettings = true,
+    AutoSaveSettings = false,
     
     -- 8. Títulos Automáticos por Modo
     TitleBossEnabled = false,
@@ -185,19 +185,19 @@ local Config = {
     
     -- 9. Eventos Especiais
     AutoEnterBoss = false,
-    BossDodge = true,
-    BossAutoAttack = true,
+    BossDodge = false,
+    BossAutoAttack = false,
     BossLowHover = false,
     AutoEnterRaid = false,
     RaidObbySmart = false,
     RaidAutoAttack = false,
     AutoSurvival = false,
     SurvivalDodge = false,
-    EventReturnMemory = true,
+    EventReturnMemory = false,
     
     -- Playtime & Daily Rewards
-    AutoDailyRewards = true,
-    AutoPlaytimeRewards = true,
+    AutoDailyRewards = false,
+    AutoPlaytimeRewards = false,
     
     -- Estatísticas
     ClicksCount = 0,
@@ -812,6 +812,7 @@ local CONFIG_FILE = "SuperHeroEvolution_Config_V5.json"
 
 saveConfig = function()
     pcall(function()
+        if not Config.AutoSaveSettings then return end
         if writefile then
             local data = {
                 FastClick = Config.FastClick,
@@ -877,6 +878,7 @@ end
 
 loadConfig = function()
     pcall(function()
+        if not Config.AutoSaveSettings then return end
         if isfile and isfile(CONFIG_FILE) and readfile then
             local raw = readfile(CONFIG_FILE)
             local data = HttpService:JSONDecode(raw)
