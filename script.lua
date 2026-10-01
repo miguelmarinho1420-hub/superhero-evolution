@@ -3550,32 +3550,70 @@ local function getBestUnlockedZone(specificWorld, filterType)
     return best or AllTrainingZones[1]
 end
 
--- Helper para detectar saco de treino ou hitbox proximo ao jogador (ate 35 studs)
+local cachedHitboxList = {}
+local lastHitboxMapName = nil
+
+local function getTrainingHitboxList()
+    local curMap = getCurrentMap()
+    local mapName = curMap and curMap.Name or "Map"
+    if lastHitboxMapName == mapName and #cachedHitboxList > 0 then
+        return cachedHitboxList
+    end
+    
+    lastHitboxMapName = mapName
+    cachedHitboxList = {}
+    
+    local containers = {}
+    if curMap then
+        local tz = curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
+        if tz then table.insert(containers, tz) end
+        table.insert(containers, curMap)
+    end
+    for _, extra in ipairs({"Map", "MapTest"}) do
+        local m = workspace:FindFirstChild(extra)
+        if m and m ~= curMap then
+            local tz = m:FindFirstChild("TrainingZones") or m:FindFirstChild("Zones")
+            if tz then table.insert(containers, tz) end
+            table.insert(containers, m)
+        end
+    end
+    
+    for _, container in ipairs(containers) do
+        if container then
+            for _, child in ipairs(container:GetChildren()) do
+                if child:IsA("Model") and not isPaidOrRobuxZone(child) then
+                    local hb = child:FindFirstChild("Hitbox") or child:FindFirstChild("PunchingBag")
+                    if hb and hb:IsA("BasePart") then
+                        table.insert(cachedHitboxList, hb)
+                    end
+                elseif child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "PunchingBag") then
+                    if not isPaidOrRobuxZone(child) then
+                        table.insert(cachedHitboxList, child)
+                    end
+                end
+            end
+            if #cachedHitboxList > 0 then break end
+        end
+    end
+    
+    return cachedHitboxList
+end
+
+-- Helper ultra-leve para detectar saco de treino ou hitbox proximo ao jogador (0ms)
 local function findNearbyTrainingHitbox(hrp, maxDist)
     if not hrp then return nil end
     local pPos = hrp.Position
     local bestHb = nil
     local bestDist = maxDist or 35
     
-    local curMap = getCurrentMap()
-    local searchContainers = { curMap, workspace:FindFirstChild("Map"), workspace:FindFirstChild("MapTest") }
-    if curMap and curMap.Parent then table.insert(searchContainers, curMap.Parent) end
-    
-    for _, container in ipairs(searchContainers) do
-        if container then
-            for _, d in ipairs(container:GetDescendants()) do
-                if d:IsA("BasePart") and (d.Name == "Hitbox" or (d.Name == "PunchingBag" and d:IsA("BasePart"))) then
-                    if not isPaidOrRobuxZone(d) then
-                        local dPos = d.Position
-                        local dist = (dPos - pPos).Magnitude
-                        if dist < bestDist then
-                            bestDist = dist
-                            bestHb = d
-                        end
-                    end
-                end
+    local hitboxes = getTrainingHitboxList()
+    for _, hb in ipairs(hitboxes) do
+        if hb and hb.Parent then
+            local dist = (hb.Position - pPos).Magnitude
+            if dist < bestDist then
+                bestDist = dist
+                bestHb = hb
             end
-            if bestHb then break end
         end
     end
     return bestHb
@@ -3667,6 +3705,9 @@ spawnThread(function()
     local lastBagHitbox = nil
     local lastBagCheck = 0
     local lastStatsUpdate = 0
+    local lastTouchInterest = 0
+    local lastVirtualClick = 0
+    
     while true do
         if Config.FastClick then
             pcall(function()
@@ -3675,46 +3716,53 @@ spawnThread(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if not char or not hum or hum.Health <= 0 or not hrp then return end
                 
-                local now = tick()
-                if now - lastBagCheck > 1 then
+                local now = os.clock()
+                if now - lastBagCheck >= 0.5 then
                     lastBagCheck = now
                     lastBagHitbox = findNearbyTrainingHitbox(hrp, 30)
                 end
                 
-                -- Se estiver perto de um saco de treino, aciona o hitbox para ganhar o multiplicador massivo da zona
+                -- Se estiver perto de um saco de treino, aciona o hitbox suavemente sem inundar a física
                 if lastBagHitbox and lastBagHitbox.Parent then
-                    if firetouchinterest then
-                        firetouchinterest(hrp, lastBagHitbox, 0)
-                        firetouchinterest(hrp, lastBagHitbox, 1)
+                    if now - lastTouchInterest >= 1.5 then
+                        lastTouchInterest = now
+                        if firetouchinterest then
+                            firetouchinterest(hrp, lastBagHitbox, 0)
+                            firetouchinterest(hrp, lastBagHitbox, 1)
+                        end
                     end
                     if RemoteRequestTrain then
                         RemoteRequestTrain:FireServer()
                     end
                 else
-                    -- Se estiver perto de inimigo em combate, orienta para o inimigo para o golpe acertar
+                    -- Se estiver perto de inimigo em combate, orienta para o inimigo somente se não estiver andando
                     local enemy = findNearbyCombatEnemy(hrp, 45)
                     if enemy then
                         local eRoot = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChildWhichIsA("BasePart")
-                        if eRoot then
+                        if eRoot and (not hum or hum.MoveDirection.Magnitude <= 0.05) then
                             local lookTarget = Vector3.new(eRoot.Position.X, hrp.Position.Y, eRoot.Position.Z)
                             hrp.CFrame = CFrame.lookAt(hrp.Position, lookTarget)
                         end
                     end
                 end
                 
-                -- Dispara o clique virtual nativo do jogo (executa o ataque real, animacoes do heroi, sons e popup de dano/ganho)
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton1(Vector2.new(0, 0))
-                
-                -- Dispara os remotes de ataque e clique diretamente para garantir registro
+                -- Dispara os remotes de ataque e clique diretamente na velocidade máxima sem congelar o cliente
                 if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                 if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                
+                -- Aciona clique virtual suave para animar os golpes sem travar mouse ou câmera
+                if now - lastVirtualClick >= 0.1 then
+                    lastVirtualClick = now
+                    pcall(function()
+                        VirtualUser:ClickButton1(Vector2.new(100, 100))
+                    end)
+                end
                 
                 Config.ClicksCount = Config.ClicksCount + 1
             end)
             
-            -- Atualiza o card de status no máximo 4 vezes por segundo (a cada 0.25s) para economizar renderização de UI
-            local now = tick()
+            -- Atualiza o card de status a cada 0.25s para poupar renderização de UI
+            local now = os.clock()
             if now - lastStatsUpdate >= 0.25 then
                 lastStatsUpdate = now
                 if MainStatsCard then
@@ -3729,6 +3777,8 @@ end)
 
 spawnThread(function()
     local lastDisabledBag = nil
+    local lastTrainTouch = 0
+    local lastTrainVClick = 0
     while true do
         if Config.AutoTrain and not isBossActive() and not Config.AutoEndless and not isInsideEndless() and not (isRaidActive() and Config.AutoEnterRaid) and not isInsideRaid() then
             pcall(function()
@@ -3799,17 +3849,21 @@ spawnThread(function()
                     if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.zero end
                     if hrp.AssemblyAngularVelocity then hrp.AssemblyAngularVelocity = Vector3.zero end
                     
-                    if hitbox and firetouchinterest then
+                    local now = os.clock()
+                    if hitbox and firetouchinterest and (now - lastTrainTouch >= 1.5) then
+                        lastTrainTouch = now
                         firetouchinterest(hrp, hitbox, 0)
                         firetouchinterest(hrp, hitbox, 1)
                     end
                     
                     if RemoteRequestTrain then RemoteRequestTrain:FireServer() end
                     if RemotePlayerClick then RemotePlayerClick:FireServer() end
-                    pcall(function()
-                        VirtualUser:CaptureController()
-                        VirtualUser:ClickButton1(Vector2.new(0, 0))
-                    end)
+                    if now - lastTrainVClick >= 0.1 then
+                        lastTrainVClick = now
+                        pcall(function()
+                            VirtualUser:ClickButton1(Vector2.new(100, 100))
+                        end)
+                    end
                 end
             end)
         end
