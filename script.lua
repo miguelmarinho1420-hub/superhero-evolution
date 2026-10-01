@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895503
+local SCRIPT_VERSION_TIMESTAMP = 1790897063
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -186,6 +186,9 @@ local function loadConfig()
                 if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
                     Config[k] = v
                 end
+            end
+            if Config.AutoEndless == true then
+                Config.AutoWin = false
             end
             ConfigRestoredAfterHop = true
             return true
@@ -1382,12 +1385,9 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
     if hum then hum.WalkSpeed = Config.WinGlideSpeed or 75 end
     
-    -- Desliza com velocidade configurada até a área de combate do estágio
+    -- Desliza com velocidade configurada até a área de combate do estágio (sem teleporte brusco)
     local distToComb = (hrp.Position - combatPos).Magnitude
-    if distToComb > 200 then
-        hrp.CFrame = CFrame.new(combatPos + Vector3.new(0, 1.5, 0))
-        task.wait(0.06)
-    elseif distToComb > 2.0 then
+    if distToComb > 2.0 then
         local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
         if not okGlide then return false, "dead" end
     end
@@ -1676,14 +1676,12 @@ end
 local function getEndlessArenaCenter()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return EndlessArenaCenters[9], 9 end
+    if not hrp then return nil, nil end
     
     local pPos = hrp.Position
     local targetWorld = nil
     if Config.EndlessWorld and Config.EndlessWorld ~= "current" then
         targetWorld = tonumber(string.match(tostring(Config.EndlessWorld), "%d+"))
-    elseif Config.SelectedProgWorld and Config.SelectedProgWorld ~= "current" and Config.SelectedProgWorld ~= "all" then
-        targetWorld = tonumber(string.match(tostring(Config.SelectedProgWorld), "%d+"))
     end
     
     if targetWorld and EndlessArenaCenters[targetWorld] then
@@ -1696,7 +1694,7 @@ local function getEndlessArenaCenter()
     
     local closestCenter = nil
     local closestDist = math.huge
-    local closestWorld = 9
+    local closestWorld = nil
     for wNum, c in pairs(EndlessArenaCenters) do
         local dist = (Vector3.new(pPos.X, 0, pPos.Z) - Vector3.new(c.X, 0, c.Z)).Magnitude
         if dist < closestDist then
@@ -1713,7 +1711,7 @@ local function getEndlessArenaCenter()
     if targetWorld and EndlessArenaCenters[targetWorld] then
         return EndlessArenaCenters[targetWorld], targetWorld
     end
-    return EndlessArenaCenters[9], 9
+    return closestCenter, closestWorld
 end
 
 local function onCharacterLoadedForEndless(char)
@@ -1754,11 +1752,6 @@ local function getSelectedEndlessWorldNum()
     local targetWorld = nil
     if Config.EndlessWorld and Config.EndlessWorld ~= "current" then
         targetWorld = tonumber(string.match(tostring(Config.EndlessWorld), "%d+"))
-    elseif Config.SelectedProgWorld and Config.SelectedProgWorld ~= "current" and Config.SelectedProgWorld ~= "all" then
-        local wNum = tonumber(string.match(tostring(Config.SelectedProgWorld), "%d+"))
-        if wNum and wNum >= 2 then
-            targetWorld = wNum
-        end
     end
     
     if not targetWorld then
@@ -1831,7 +1824,7 @@ local function enterEndlessPortal()
     
     local curMap = getCurrentMap()
     local curMapName = curMap and curMap.Name or "Map"
-    if curMapName ~= targetMapName then
+    if Config.EndlessWorld and Config.EndlessWorld ~= "current" and curMapName ~= targetMapName then
         if RemoteRequestWorldChange then
             RemoteRequestWorldChange:InvokeServer(targetWorldNum)
             task.wait(1.5)
@@ -1954,6 +1947,7 @@ spawnThread(function()
                             EndlessStatsCard.Update("Dentro da Arena (Seguro)", Color3.fromRGB(46, 204, 113))
                         end
                         
+                        -- Focado 100% no Endless: segura a posição de entrada, zero velocidade, sem andar ou teleportar para boss/monstros
                         if not endlessEnteredCFrame then
                             local arenaCenter = getEndlessArenaCenter()
                             if arenaCenter then
