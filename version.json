@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790880437,
-  "commit": "94025ce",
-  "message": "fix: auto boss configurado exclusivamente para aceitar o convite sem executar nenhuma outra funcao",
-  "date": "2026-10-01 15:47:20"
+  "timestamp": 1790880626,
+  "commit": "43f157b",
+  "message": "feat: opcao para escolher se quer ver ou pular a animacao de abrir ovos",
+  "date": "2026-10-01 15:50:28"
 }
