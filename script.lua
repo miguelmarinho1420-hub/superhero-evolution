@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790881572
+local SCRIPT_VERSION_TIMESTAMP = 1790882105
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -157,7 +157,7 @@ local Config = {
     AutoClosePopups = false,
     
     -- 6. Movimento & Física
-    AntiAfk = false,
+    AntiAfk = true,
     WalkSpeedEnabled = false,
     WalkSpeed = 60,
     InfiniteJump = false,
@@ -200,7 +200,7 @@ local Config = {
     
     -- Playtime & Daily Rewards
     AutoDailyRewards = false,
-    AutoPlaytimeRewards = false,
+    AutoPlaytimeRewards = true,
     
     -- Estatísticas
     ClicksCount = 0,
@@ -277,6 +277,8 @@ local previousActivity = nil
 local EndlessToggle = nil
 local TrainToggle = nil
 local WinToggle = nil
+local RebirthToggle = nil
+local FastClickToggle = nil
 local bossWaitingForSpawn = false
 local bossWaitStartTime = 0
 local bossPlayerJoined = false
@@ -639,6 +641,7 @@ local function pauseAutomationsForEvent(eventName)
     if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
     if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(false, true) end
     if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(false, true) end
+    if FastClickToggle and FastClickToggle.Set then FastClickToggle.Set(false, true) end
 end
 
 local function resumeAutomationsAfterEvent(eventName)
@@ -693,6 +696,7 @@ local function resumeAutomationsAfterEvent(eventName)
         end
         if saved.FastClick ~= nil then
             Config.FastClick = saved.FastClick
+            if FastClickToggle and FastClickToggle.Set then FastClickToggle.Set(saved.FastClick, true) end
         end
         if saved.AutoRebirth ~= nil then
             Config.AutoRebirth = saved.AutoRebirth
@@ -1006,13 +1010,12 @@ end
 table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(stabilizeCharacter))
 
 -- ══════════════════════════════════════════════════════════════
--- ️ 24/7 ANTI-AFK SILENCIOSO
+-- ️ 24/7 ANTI-AFK SILENCIOSO (SEMPRE ATIVO)
 -- ══════════════════════════════════════════════════════════════
 table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
-    if Config.AntiAfk then
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new(0, 0))
-    end
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0, 0))
+    print("[Anti-AFK] Sinal de ociosidade interceptado! Clicando para manter ativo...")
 end))
 
 spawnThread(function()
@@ -1023,7 +1026,7 @@ spawnThread(function()
                 VirtualUser:ClickButton2(Vector2.new(10, 10))
             end)
         end
-        task.wait(120)
+        task.wait(60)
     end
 end)
 
@@ -1573,7 +1576,7 @@ local PlaytimeSchedule = {
 local function claimAvailablePlaytimeRewards()
     local totalClaimed = 0
     pcall(function()
-        if not RemoteClaimPlaytimeReward then return end
+        -- 1. Método Remoto Direto via State
         local state = nil
         if RemoteGetPlaytimeRewardsState then
             local ok, res = pcall(function() return RemoteGetPlaytimeRewardsState:InvokeServer() end)
@@ -1586,10 +1589,41 @@ local function claimAvailablePlaytimeRewards()
         for slot = 1, 12 do
             local reqTime = PlaytimeSchedule[slot] or (slot * 300)
             if elapsed >= reqTime and not claimedMap[slot] then
-                RemoteClaimPlaytimeReward:FireServer(slot)
+                if RemoteClaimPlaytimeReward then
+                    RemoteClaimPlaytimeReward:FireServer(slot)
+                    print("[Playtime Rewards] Recompensa do slot " .. slot .. " resgatada via Remote!")
+                end
                 claimedMap[slot] = true
                 totalClaimed = totalClaimed + 1
                 task.wait(0.12)
+            end
+        end
+        
+        -- 2. Método GUI (detecta e clica nos botões prontos na interface)
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local pr = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Menus") and pgui.ScreenGui.Menus:FindFirstChild("PlaytimeRewards")
+        local sf = pr and pr:FindFirstChild("ScrollingFrame", true)
+        if sf then
+            for slot = 1, 12 do
+                local btn = sf:FindFirstChild(tostring(slot))
+                if btn and btn:IsA("GuiButton") then
+                    local claimF = btn:FindFirstChild("Claim", true)
+                    local claimL = claimF and claimF:FindFirstChildWhichIsA("TextLabel")
+                    local cText = claimL and claimL.Text:upper() or ""
+                    if claimF and claimF.Visible and not cText:find("CLAIMED") and not cText:find("REIVINDICADO") then
+                        if RemoteClaimPlaytimeReward then RemoteClaimPlaytimeReward:FireServer(slot) end
+                        pcall(function()
+                            if firesignal then
+                                firesignal(btn.Activated)
+                                firesignal(btn.MouseButton1Click)
+                            elseif firebutton1click then
+                                firebutton1click(btn)
+                            end
+                        end)
+                        print("[Playtime Rewards] Recompensa do slot " .. slot .. " resgatada via GUI!")
+                        totalClaimed = totalClaimed + 1
+                    end
+                end
             end
         end
     end)
@@ -3420,7 +3454,7 @@ createSectionHeader(TreinoTab, "⚡ CLIQUE & REBIRTH")
 
 MainStatsCard = createInfoCard(TreinoTab, "📊 Estatísticas em Tempo Real", "Clicks: 0 | Rebirths: 0", Themes.Accent2)
 
-createToggle(TreinoTab, "Auto Click (Fast Click)", Config.FastClick, function(val)
+FastClickToggle = createToggle(TreinoTab, "Auto Click (Fast Click)", Config.FastClick, function(val)
     Config.FastClick = val
 end)
 
@@ -3428,7 +3462,7 @@ createSlider(TreinoTab, "Velocidade de Cliques por Segundo (CPS)", 1, 50, Config
     Config.ClickCPS = val
 end)
 
-createToggle(TreinoTab, "Auto Rebirth", Config.AutoRebirth, function(val)
+RebirthToggle = createToggle(TreinoTab, "Auto Rebirth", Config.AutoRebirth, function(val)
     Config.AutoRebirth = val
 end)
 
