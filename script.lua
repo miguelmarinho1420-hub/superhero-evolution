@@ -136,6 +136,7 @@ local Config = {
     SelectedProgStage = "Stage134",
     AutoWin = false,
     CombatTime = 2.0,
+    WinGlideSpeed = 75,
     
     -- 3. CO-OP Sem Fim
     AutoEndless = false,
@@ -822,6 +823,7 @@ saveConfig = function()
                 SelectedProgStage = Config.SelectedProgStage,
                 AutoWin = Config.AutoWin,
                 CombatTime = Config.CombatTime,
+                WinGlideSpeed = Config.WinGlideSpeed,
                 AutoEndless = Config.AutoEndless,
                 AutoHopBlocked = Config.AutoHopBlocked,
                 SelectedEgg = Config.SelectedEgg,
@@ -3957,6 +3959,10 @@ createSlider(FarmTab, "Tempo de Combate por Estágio", 0.5, 10.0, Config.CombatT
     Config.CombatTime = val
 end)
 
+createSlider(FarmTab, "Velocidade de Deslize (Auto Win)", 40, 160, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
+    Config.WinGlideSpeed = val
+end)
+
 createSectionHeader(FarmTab, "🌀 CO-OP SEM FIM")
 
 local EndlessWorldsList = {
@@ -4050,45 +4056,82 @@ local function getStageFreePad(stageInstance)
     return target
 end
 
-local function glideToCFrame(targetCFrame, speed)
+local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
     
-    local activeSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or speed or 50
-    speed = activeSpeed
+    local activeSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or Config.WinGlideSpeed or speed or 75
     if hum then hum.WalkSpeed = activeSpeed end
     
-    local dist = (hrp.Position - targetCFrame.Position).Magnitude
-    local duration = math.max(dist / speed, 0.1)
+    local targetPos = targetCFrame.Position
+    local startPos = hrp.Position
+    local totalDist = (targetPos - startPos).Magnitude
+    if totalDist < 0.25 then
+        hrp.CFrame = targetCFrame
+        return true
+    end
     
+    -- No-clip contínuo e anulação de gravidade/inércia em Stepped (elimina vibrações e stutter)
     local ncConn = RunService.Stepped:Connect(function()
         if char then
             for _, part in ipairs(char:GetChildren()) do
                 if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
             end
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
         end
     end)
     
-    local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
-    tween:Play()
+    local lastAttackTick = 0
+    local t0 = os.clock()
+    local maxDuration = math.max((totalDist / activeSpeed) + 1.2, 0.35)
+    local reached = false
     
-    while tween.PlaybackState == Enum.PlaybackState.Playing do
-        if not Config.AutoWin or Config.AutoEndless then tween:Cancel(); break end
+    while Config.AutoWin and not Config.AutoEndless do
+        local dt = RunService.Heartbeat:Wait()
         char = LocalPlayer.Character
         hum = char and char:FindFirstChildOfClass("Humanoid")
         hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp or not hum or hum.Health <= 0 then tween:Cancel(); break end
-        task.wait(0.05)
+        if not hrp or not hum or hum.Health <= 0 then break end
+        
+        local currentPos = hrp.Position
+        local toTarget = targetPos - currentPos
+        local distRemaining = toTarget.Magnitude
+        local step = activeSpeed * dt
+        
+        if attackWhileMoving and (os.clock() - lastAttackTick >= 0.05) then
+            lastAttackTick = os.clock()
+            if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+            if RemotePlayerClick then RemotePlayerClick:FireServer() end
+        end
+        
+        if distRemaining <= math.max(step * 1.15, 0.35) or (os.clock() - t0 >= maxDuration) then
+            hrp.CFrame = targetCFrame
+            reached = true
+            break
+        else
+            local moveDir = toTarget.Unit
+            local nextPos = currentPos + (moveDir * step)
+            local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
+            if flatDir.Magnitude > 0.05 then
+                local lookRot = CFrame.lookAt(nextPos, nextPos + flatDir)
+                hrp.CFrame = hrp.CFrame:Lerp(lookRot, math.clamp(dt * 15, 0.08, 1.0))
+            else
+                hrp.CFrame = CFrame.new(nextPos) * (targetCFrame - targetCFrame.Position)
+            end
+        end
     end
     
     pcall(function() ncConn:Disconnect() end)
     if hrp and hum and hum.Health > 0 then
-        hrp.Velocity = Vector3.zero
-        hrp.RotVelocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
         hum.WalkSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or 50
-        return true
+        return reached
     end
     return false
 end
@@ -4360,14 +4403,14 @@ local function clearStageEnemies(stageInstance)
     local lineUnit = (lineLen > 0.1) and lineVec.Unit or Vector3.new(0, 0, 1)
     local combatPos = cStart + lineUnit * (lineLen * 0.55)
     
-    if (hrp.Position - combatPos).Magnitude > 80 then
-        hrp.CFrame = CFrame.new(combatPos + Vector3.new(0, 3, 0))
+    if (hrp.Position - combatPos).Magnitude > 160 then
+        hrp.CFrame = CFrame.new(combatPos + Vector3.new(0, 2.5, 0))
         if LocalPlayer.RequestStreamAroundAsync then
             pcall(function() LocalPlayer:RequestStreamAroundAsync(combatPos) end)
         end
         task.wait(0.15)
     else
-        local ok = glideToCFrame(CFrame.new(combatPos + Vector3.new(0, 2.5, 0), combatPos + lineUnit + Vector3.new(0, 2.5, 0)), 55)
+        local ok = glideToCFrame(CFrame.new(combatPos + Vector3.new(0, 1.2, 0), combatPos + lineUnit + Vector3.new(0, 1.2, 0)), nil, true)
         if not ok then return false, "dead" end
     end
     
@@ -4379,18 +4422,18 @@ local function clearStageEnemies(stageInstance)
         hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
         
-        hrp.Velocity = Vector3.zero
-        hrp.RotVelocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
         
         if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
         if RemotePlayerClick then RemotePlayerClick:FireServer() end
         
         local live = getLiveStageEnemies(stageInstance, cStart, cEnd)
-        if #live == 0 and tick() - t0 > 0.4 then break end
-        task.wait(0.08)
+        if #live == 0 and tick() - t0 > 0.1 then break end
+        task.wait(0.04)
     end
     
-    glideToCFrame(CFrame.new(cEnd + Vector3.new(0, 2.5, 0), cEnd + lineUnit + Vector3.new(0, 2.5, 0)), 55)
+    glideToCFrame(CFrame.new(cEnd + Vector3.new(0, 1.2, 0), cEnd + lineUnit + Vector3.new(0, 1.2, 0)), nil, true)
     if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
     if RemotePlayerClick then RemotePlayerClick:FireServer() end
     return true, "cleared"
@@ -4453,77 +4496,84 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
     if hum then hum.WalkSpeed = (Config.WalkSpeedEnabled and Config.WalkSpeed) or 50 end
     
     local centerStart, centerEnd = getStageCorridorPath(stage, targetPad)
+    local padTargetCF = targetPad.CFrame + Vector3.new(0, 1.0, 0)
+    local stageY = targetPad.Position.Y + 1.2
     
-    if centerStart and (hrp.Position - centerStart).Magnitude > 80 then
-        hrp.CFrame = CFrame.new(centerStart + Vector3.new(0, 3, 0))
-        if LocalPlayer.RequestStreamAroundAsync then
-            pcall(function() LocalPlayer:RequestStreamAroundAsync(centerStart) end)
-        end
-        task.wait(0.2)
-    elseif centerStart and (hrp.Position - centerStart).Magnitude > 15 then
-        local ok = glideToCFrame(CFrame.new(centerStart + Vector3.new(0, 2.5, 0)), 50)
-        if not ok then return false, "dead" end
-    end
-    
-    if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
-    
-    local lineVec = (centerEnd and centerStart) and (centerEnd - centerStart) or nil
+    -- Normaliza altura horizontal para evitar oscilações verticais (gliding plano e estável)
+    local startPos = centerStart and Vector3.new(centerStart.X, stageY, centerStart.Z) or nil
+    local endPos = centerEnd and Vector3.new(centerEnd.X, stageY, centerEnd.Z) or nil
+    local lineVec = (endPos and startPos) and (endPos - startPos) or nil
     local lineLen = lineVec and lineVec.Magnitude or 0
     local lineUnit = (lineLen > 0.1) and lineVec.Unit or Vector3.new(0, 0, 1)
+    local combatPos = startPos and (startPos + lineUnit * (lineLen * 0.55)) or nil
     
-    local combatPos = centerStart + lineUnit * (lineLen * 0.55)
-    local ok = glideToCFrame(CFrame.new(combatPos + Vector3.new(0, 2.5, 0), combatPos + lineUnit + Vector3.new(0, 2.5, 0)), 50)
-    if not ok then return false, "dead" end
-    
-    if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
-    
-    hrp.Velocity = Vector3.zero
-    hrp.RotVelocity = Vector3.zero
-    
-    local fightStart = tick()
-    local detectedEnemies = false
-    local maxComb = Config.CombatTime or 2.0
-    
-    while Config.AutoWin and not Config.AutoEndless do
-        local elapsed = tick() - fightStart
-        char = LocalPlayer.Character
-        hrp = char and char:FindFirstChild("HumanoidRootPart")
-        hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-        
-        hrp.Velocity = Vector3.zero
-        hrp.RotVelocity = Vector3.zero
-        
-        if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
-        if RemotePlayerClick then RemotePlayerClick:FireServer() end
-        
-        local liveEnemies = getLiveStageEnemies(stage, centerStart, centerEnd)
-        if #liveEnemies > 0 then detectedEnemies = true end
-        if detectedEnemies and #liveEnemies == 0 then break end
-        if elapsed >= maxComb then break end
-        task.wait(0.08)
+    -- 1. Deslizamento fluido até a entrada do corredor
+    if startPos then
+        local distToStart = (hrp.Position - startPos).Magnitude
+        if distToStart > 160 then
+            hrp.CFrame = CFrame.new(startPos + Vector3.new(0, 1.5, 0))
+            if LocalPlayer.RequestStreamAroundAsync then
+                pcall(function() LocalPlayer:RequestStreamAroundAsync(startPos) end)
+            end
+            task.wait(0.15)
+        elseif distToStart > 2.5 then
+            local ok = glideToCFrame(CFrame.new(startPos, startPos + lineUnit), nil, true)
+            if not ok then return false, "dead" end
+        end
     end
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    if centerEnd then
-        local okEnd = glideToCFrame(CFrame.new(centerEnd + Vector3.new(0, 2.5, 0), centerEnd + lineUnit + Vector3.new(0, 2.5, 0)), 50)
-        if not okEnd then return false, "dead" end
-        if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
-        if RemotePlayerClick then RemotePlayerClick:FireServer() end
+    -- 2. Deslizamento contínuo pelo corredor com ataque em movimento
+    local liveEnemies = (startPos and endPos) and getLiveStageEnemies(stage, centerStart, centerEnd) or {}
+    if #liveEnemies == 0 then
+        -- Sem inimigos vivos: Desliza direto para o Pad sem paradas (100% fluido)
+        local okPad = glideToCFrame(padTargetCF, nil, true)
+        if not okPad then return false, "dead" end
+    else
+        -- Com inimigos: Desliza fluidamente em direção a eles atacando
+        if combatPos then
+            local okComb = glideToCFrame(CFrame.new(combatPos, combatPos + lineUnit), nil, true)
+            if not okComb then return false, "dead" end
+        end
+        
+        if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
+        
+        -- Combate com ataque contínuo e verificação rápida
+        local fightStart = os.clock()
+        local maxComb = Config.CombatTime or 2.0
+        while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < maxComb) do
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
+            
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+            if RemotePlayerClick then RemotePlayerClick:FireServer() end
+            
+            local remaining = getLiveStageEnemies(stage, centerStart, centerEnd)
+            if #remaining == 0 and (os.clock() - fightStart > 0.08) then break end
+            task.wait(0.04)
+        end
+        
+        if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
+        
+        -- Assim que os inimigos caem, desliza imediatamente para o Pad
+        local okPad = glideToCFrame(padTargetCF, nil, true)
+        if not okPad then return false, "dead" end
     end
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
+    -- 3. Ativação e coleta do Pad com feedback instantâneo
     if shouldGlideToPad and targetPad then
         local retriesLeft = 2
         local targetNum = tonumber(string.match(stage.Name, "%d+"))
         
         while Config.AutoWin and not Config.AutoEndless do
-            local okPad = glideToCFrame(targetPad.CFrame + Vector3.new(0, 2.5, 0), 50)
-            if not okPad then return false, "dead" end
-            if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
-            
             lockPadStationary(targetPad)
             
             local initialWinTime = lastWinCollectedTick
@@ -4544,19 +4594,19 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
                 hum = char and char:FindFirstChildOfClass("Humanoid")
                 if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
                 
-                hrp.CFrame = targetPad.CFrame + Vector3.new(0, 1.0, 0)
-                hrp.Velocity = Vector3.zero
-                hrp.RotVelocity = Vector3.zero
+                hrp.CFrame = padTargetCF
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
                 
                 if firetouchinterest then
                     firetouchinterest(hrp, targetPad, 0)
-                    task.wait(0.03)
+                    task.wait(0.02)
                     firetouchinterest(hrp, targetPad, 1)
                     
                     local foot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
                     if foot then
                         firetouchinterest(foot, targetPad, 0)
-                        task.wait(0.03)
+                        task.wait(0.02)
                         firetouchinterest(foot, targetPad, 1)
                     end
                 end
@@ -4575,7 +4625,7 @@ local function farmStage(stage, shouldGlideToPad, stagesList)
                     padCollected = true
                     break
                 end
-                task.wait(0.12)
+                task.wait(0.06)
             end
             
             if padCollected then return true, "ok" end
