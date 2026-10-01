@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790882105
+local SCRIPT_VERSION_TIMESTAMP = 1790882584
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -620,6 +620,7 @@ local function pauseAutomationsForEvent(eventName)
     EventMemory.SavedZone = Config.SelectedTrainZone
     EventMemory.SavedProgWorld = Config.SelectedProgWorld
     EventMemory.SavedProgStage = Config.SelectedProgStage
+    EventMemory.SavedEndlessWorld = Config.EndlessWorld
     EventMemory.SavedCFrame = hrp and hrp.CFrame
     
     print(string.format("[Event Memory] %s ativo! Pausando outras funções: AutoTrain=%s, AutoWin=%s, AutoEndless=%s, AutoRebirth=%s",
@@ -666,6 +667,7 @@ local function resumeAutomationsAfterEvent(eventName)
     local savedZone = EventMemory.SavedZone
     local savedProgWorld = EventMemory.SavedProgWorld
     local savedProgStage = EventMemory.SavedProgStage
+    local savedEndlessWorld = EventMemory.SavedEndlessWorld
     
     EventMemory.IsActive = false
     EventMemory.CurrentEvent = nil
@@ -675,6 +677,7 @@ local function resumeAutomationsAfterEvent(eventName)
     EventMemory.SavedZone = nil
     EventMemory.SavedProgWorld = nil
     EventMemory.SavedProgStage = nil
+    EventMemory.SavedEndlessWorld = nil
     
     if saved then
         if saved.AutoTrain then
@@ -690,6 +693,7 @@ local function resumeAutomationsAfterEvent(eventName)
             if Config.TitleWinEnabled and equipTitle then equipTitle(Config.TitleWin) end
         end
         if saved.AutoEndless then
+            if savedEndlessWorld then Config.EndlessWorld = savedEndlessWorld end
             Config.AutoEndless = true
             if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(true, true) end
             if Config.TitleCoopEnabled and equipTitle then equipTitle(Config.TitleCoop) end
@@ -709,7 +713,7 @@ local function resumeAutomationsAfterEvent(eventName)
             local char, hrp = waitForCharacterAlive(6)
             if hrp and savedCF and (Config.EventReturnMemory or saved.AutoTrain or saved.AutoWin or saved.AutoEndless) then
                 -- Restaura mundo correto se o jogador estiver em outro mundo
-                local targetWorld = (saved.AutoTrain and savedWorld) or (saved.AutoWin and savedProgWorld) or savedWorld
+                local targetWorld = (saved.AutoTrain and savedWorld) or (saved.AutoWin and savedProgWorld) or (saved.AutoEndless and savedEndlessWorld) or savedWorld
                 if targetWorld and targetWorld ~= "auto" and RemoteRequestWorldChange then
                     local wNum = tonumber(string.match(tostring(targetWorld), "%d+"))
                     if wNum then
@@ -4077,10 +4081,6 @@ createSlider(FarmTab, "Tempo de Combate por Estágio", 0.5, 10.0, Config.CombatT
     Config.CombatTime = val
 end)
 
-createSlider(FarmTab, "Velocidade de Deslize (Auto Win)", 40, 500, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
-    Config.WinGlideSpeed = val
-end)
-
 createSectionHeader(FarmTab, "🌀 CO-OP SEM FIM")
 
 local EndlessWorldsList = {
@@ -5261,7 +5261,21 @@ if LocalPlayer.Character then onCharacterLoadedForEndless(LocalPlayer.Character)
 local endlessCharConn = LocalPlayer.CharacterAdded:Connect(function(char) onCharacterLoadedForEndless(char) end)
 table.insert(ActiveConnections, endlessCharConn)
 
-local function getTargetEndlessPortal()
+local function getPortalWorld(p)
+    if not p then return nil end
+    local attrW = p:GetAttribute("World")
+    if type(attrW) == "number" then return attrW end
+    local parent = p.Parent
+    local map = parent and parent.Parent
+    if map then
+        if map.Name == "MapTest" then return 2 end
+        local num = tonumber(string.match(map.Name, "%d+"))
+        if num then return num end
+    end
+    return nil
+end
+
+local function getSelectedEndlessWorldNum()
     local targetWorld = nil
     if Config.EndlessWorld and Config.EndlessWorld ~= "current" then
         targetWorld = tonumber(string.match(tostring(Config.EndlessWorld), "%d+"))
@@ -5272,22 +5286,49 @@ local function getTargetEndlessPortal()
         end
     end
     
-    local portals = CollectionService:GetTagged("EndlessPortal")
-    if #portals == 0 then return nil, 9 end
-    
-    if targetWorld then
-        for _, p in ipairs(portals) do
-            if p:GetAttribute("World") == targetWorld then
-                return p, targetWorld
-            end
+    if not targetWorld then
+        local curMap = getCurrentMap()
+        local curMapName = curMap and curMap.Name or "Map"
+        if curMapName == "Map" then
+            targetWorld = 2 -- Mundo 1 não possui CO-OP Sem Fim
+        elseif curMapName == "MapTest" then
+            targetWorld = 2
+        else
+            targetWorld = tonumber(string.match(curMapName, "%d+")) or 2
         end
     end
     
+    if not targetWorld or targetWorld < 2 then targetWorld = 2 end
+    if targetWorld > 9 then targetWorld = 9 end
+    return targetWorld
+end
+
+local function getTargetEndlessPortal(targetWorldNum)
+    if not targetWorldNum then targetWorldNum = getSelectedEndlessWorldNum() end
+    local targetMapName = (targetWorldNum == 2 and "MapTest") or ("Map" .. tostring(targetWorldNum))
+    
+    -- 1. Tenta direto no mapa alvo
+    local mapObj = workspace:FindFirstChild(targetMapName)
+    local endlessFolder = mapObj and mapObj:FindFirstChild("Endless")
+    local portal = endlessFolder and endlessFolder:FindFirstChild("Portal")
+    if portal then
+        return portal, targetWorldNum
+    end
+    
+    -- 2. Tenta via CollectionService
+    local portals = CollectionService:GetTagged("EndlessPortal")
+    for _, p in ipairs(portals) do
+        if getPortalWorld(p) == targetWorldNum then
+            return p, targetWorldNum
+        end
+    end
+    
+    -- 3. Fallback: portal mais próximo
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local bestPortal = nil
-    local minDist = math.huge
-    if hrp then
+    if hrp and #portals > 0 then
+        local bestPortal = nil
+        local minDist = math.huge
         for _, p in ipairs(portals) do
             local hb = p:FindFirstChild("Hitbox")
             if hb and hb:IsA("BasePart") then
@@ -5298,19 +5339,12 @@ local function getTargetEndlessPortal()
                 end
             end
         end
+        if bestPortal then
+            return bestPortal, getPortalWorld(bestPortal) or targetWorldNum
+        end
     end
     
-    if bestPortal then
-        return bestPortal, (bestPortal:GetAttribute("World") or 9)
-    end
-    
-    local highestPortal = nil
-    local maxW = -1
-    for _, p in ipairs(portals) do
-        local w = p:GetAttribute("World") or 0
-        if w > maxW then maxW = w; highestPortal = p end
-    end
-    return highestPortal or portals[1], (highestPortal and highestPortal:GetAttribute("World") or 9)
+    return portals[1], targetWorldNum
 end
 
 local function enterEndlessPortal()
@@ -5320,13 +5354,38 @@ local function enterEndlessPortal()
     if not hrp or not hum or hum.Health <= 0 then return false end
     if isInsideEndless() then return true end
     
-    local portal, worldNum = getTargetEndlessPortal()
-    if not portal then return false end
-    local hitbox = portal:FindFirstChild("Hitbox")
-    if not hitbox or not hitbox:IsA("BasePart") then return false end
+    local targetWorldNum = getSelectedEndlessWorldNum()
+    local targetMapName = (targetWorldNum == 2 and "MapTest") or ("Map" .. tostring(targetWorldNum))
     
-    hrp.CFrame = hitbox.CFrame + Vector3.new(0, 1, 0)
-    task.wait(0.3)
+    -- Garante que o jogador está no mundo selecionado antes de interagir com o portal
+    local curMap = getCurrentMap()
+    local curMapName = curMap and curMap.Name or "Map"
+    if curMapName ~= targetMapName then
+        print(string.format("[Auto CO-OP] Jogador no mapa '%s'. Entrando no mundo selecionado (Mundo %d - %s)...", curMapName, targetWorldNum, targetMapName))
+        if RemoteRequestWorldChange then
+            RemoteRequestWorldChange:InvokeServer(targetWorldNum)
+            task.wait(1.5)
+            local newChar, newHrp, newHum = waitForCharacterAlive(6)
+            if not newHrp or not newHum or newHum.Health <= 0 then return false end
+            char = newChar
+            hrp = newHrp
+            hum = newHum
+        end
+    end
+    
+    local portal, worldNum = getTargetEndlessPortal(targetWorldNum)
+    if not portal then
+        print(string.format("[Auto CO-OP] Portal do Mundo %d não encontrado!", targetWorldNum))
+        return false
+    end
+    local hitbox = portal:FindFirstChild("Hitbox")
+    if not hitbox or not hitbox:IsA("BasePart") then
+        print(string.format("[Auto CO-OP] Hitbox do Portal do Mundo %d não encontrada!", targetWorldNum))
+        return false
+    end
+    
+    hrp.CFrame = hitbox.CFrame + Vector3.new(0, 1.5, 0)
+    task.wait(0.2)
     if firetouchinterest then
         firetouchinterest(hrp, hitbox, 0)
         task.wait(0.05)
@@ -5336,11 +5395,22 @@ local function enterEndlessPortal()
     if RemoteEndlessStateRequest then pcall(function() RemoteEndlessStateRequest:InvokeServer(worldNum) end) end
     task.wait(0.2)
     if RemoteEndlessJoinRequest then RemoteEndlessJoinRequest:FireServer(worldNum) end
-    task.wait(0.5)
+    task.wait(0.3)
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        local ej = pgui and pgui.ScreenGui.Menus:FindFirstChild("EndlessJoin")
-        if ej then ej.Visible = false end
+        local screenGui = pgui and pgui:FindFirstChild("ScreenGui")
+        local menus = screenGui and screenGui:FindFirstChild("Menus")
+        local ej = menus and menus:FindFirstChild("EndlessJoin")
+        if ej then
+            local main = ej:FindFirstChild("Container") and ej.Container:FindFirstChild("Main")
+            local joinBtn = main and main:FindFirstChild("Join")
+            if joinBtn and joinBtn:IsA("GuiButton") and firesignal then
+                firesignal(joinBtn.Activated)
+                firesignal(joinBtn.MouseButton1Click)
+            end
+            task.wait(0.15)
+            ej.Visible = false
+        end
     end)
     return isInsideEndless()
 end
@@ -5556,7 +5626,7 @@ createSectionHeader(ConfigTab, "🏃 MOVIMENTO & FÍSICA")
 
 createWalkSpeedControl(ConfigTab)
 
-createSlider(ConfigTab, "Velocidade de Deslize (Auto Win)", 40, 500, Config.WinGlideSpeed or 75, " studs/s", true, function(val)
+createSlider(ConfigTab, "Velocidade de Deslize (Auto Win)", 40, 500, Config.WinGlideSpeed or 75, " WalkSpeed", true, function(val)
     Config.WinGlideSpeed = val
 end)
 
