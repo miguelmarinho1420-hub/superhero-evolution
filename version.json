@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790880952,
-  "commit": "ddb2956",
-  "message": "fix: exibir apenas os tempos do Boss e da Raid no card de eventos sem status ativo",
-  "date": "2026-10-01 15:55:54"
+  "timestamp": 1790881069,
+  "commit": "e24d690",
+  "message": "feat: remover se\u00e7\u00e3o Sobreviv\u00eancia e suas fun\u00e7\u00f5es da aba Eventos",
+  "date": "2026-10-01 15:57:51"
 }
