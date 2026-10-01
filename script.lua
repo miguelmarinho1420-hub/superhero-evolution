@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790881069
+local SCRIPT_VERSION_TIMESTAMP = 1790881287
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -655,11 +655,18 @@ local function resumeAutomationsAfterEvent(eventName)
     local saved = EventMemory.SavedStates
     local savedCF = EventMemory.SavedCFrame
     local savedWorld = EventMemory.SavedWorld
+    local savedZone = EventMemory.SavedZone
+    local savedProgWorld = EventMemory.SavedProgWorld
+    local savedProgStage = EventMemory.SavedProgStage
     
     EventMemory.IsActive = false
     EventMemory.CurrentEvent = nil
     EventMemory.SavedStates = nil
     EventMemory.SavedCFrame = nil
+    EventMemory.SavedWorld = nil
+    EventMemory.SavedZone = nil
+    EventMemory.SavedProgWorld = nil
+    EventMemory.SavedProgStage = nil
     
     if saved then
         if saved.AutoTrain then
@@ -668,8 +675,8 @@ local function resumeAutomationsAfterEvent(eventName)
             if Config.TitleTrainEnabled and equipTitle then equipTitle(Config.TitleTrain) end
         end
         if saved.AutoWin then
-            if EventMemory.SavedProgWorld then Config.SelectedProgWorld = EventMemory.SavedProgWorld end
-            if EventMemory.SavedProgStage then Config.SelectedProgStage = EventMemory.SavedProgStage end
+            if savedProgWorld then Config.SelectedProgWorld = savedProgWorld end
+            if savedProgStage then Config.SelectedProgStage = savedProgStage end
             Config.AutoWin = true
             if WinToggle and WinToggle.Set then WinToggle.Set(true, true) end
             if Config.TitleWinEnabled and equipTitle then equipTitle(Config.TitleWin) end
@@ -684,21 +691,31 @@ local function resumeAutomationsAfterEvent(eventName)
         end
         if saved.AutoRebirth ~= nil then
             Config.AutoRebirth = saved.AutoRebirth
+            if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(saved.AutoRebirth, true) end
         end
         
-        -- Retorna o personagem para a atividade anterior (Auto Train, Auto Win, Auto Endless)
+        -- Retorna o personagem para a atividade anterior (Auto Train, Auto Win, Auto Endless ou posição memorizada)
         task.spawn(function()
-            task.wait(1.0)
+            task.wait(0.8)
             local char, hrp = waitForCharacterAlive(6)
             if hrp and savedCF and (Config.EventReturnMemory or saved.AutoTrain or saved.AutoWin or saved.AutoEndless) then
-                if saved.AutoTrain and savedWorld and savedWorld ~= "auto" and RemoteRequestWorldChange then
-                    local wNum = tonumber(string.match(tostring(savedWorld), "%d+"))
-                    if wNum then RemoteRequestWorldChange:InvokeServer(wNum) end
-                    task.wait(1.0)
+                -- Restaura mundo correto se o jogador estiver em outro mundo
+                local targetWorld = (saved.AutoTrain and savedWorld) or (saved.AutoWin and savedProgWorld) or savedWorld
+                if targetWorld and targetWorld ~= "auto" and RemoteRequestWorldChange then
+                    local wNum = tonumber(string.match(tostring(targetWorld), "%d+"))
+                    if wNum then
+                        RemoteRequestWorldChange:InvokeServer(wNum)
+                        task.wait(1.5)
+                    end
                 end
                 local curChar, curHrp = waitForCharacterAlive(4)
-                if curHrp and saved.AutoTrain then
+                if curHrp and savedCF then
                     curHrp.CFrame = savedCF
+                    curHrp.Velocity = Vector3.zero
+                    curHrp.RotVelocity = Vector3.zero
+                    if curHrp.AssemblyLinearVelocity then curHrp.AssemblyLinearVelocity = Vector3.zero end
+                    if curHrp.AssemblyAngularVelocity then curHrp.AssemblyAngularVelocity = Vector3.zero end
+                    print("[Event Memory] Personagem reposicionado na coordenada salva com sucesso!")
                 end
             end
         end)
@@ -5881,10 +5898,35 @@ end
 local isHandlingBossFinish = false
 
 finishBossAndResetCharacter = function(reason)
-    -- Desativado: Auto Boss apenas aceita o convite e não executa mais nenhuma função (sem reset)
-    isHandlingBossFinish = false
+    if isHandlingBossFinish then return end
+    isHandlingBossFinish = true
+    print("[Auto Boss] Finalizando Boss (" .. tostring(reason) .. ")! Processando retorno com memória...")
+    
+    bossDiedInCurrentEvent = true
     isBossFighting = false
     wasFightingBoss = false
+    bossEventPhase = "Finished"
+    
+    task.spawn(function()
+        task.wait(1.0) -- Aguarda 1s para o jogo processar os drops e recompensas
+        
+        -- Dá o reset no personagem para sair da arena do boss de forma limpa
+        print("[Auto Boss] Resetando personagem para sair da arena do Boss...")
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                hum.Health = 0
+            elseif char then
+                char:BreakJoints()
+            end
+        end)
+        task.wait(1.0)
+        waitForCharacterAlive(8)
+        
+        isHandlingBossFinish = false
+        resumeAutomationsAfterEvent("Boss")
+    end)
 end
 
 checkAndAcceptBossInvite = function()
@@ -5896,6 +5938,12 @@ checkAndAcceptBossInvite = function()
     
     if bfi and bfi.Visible then
         print("[Auto Boss] Convite de evento do Boss (BossFightInvite) detectado na tela! Aceitando...")
+        
+        -- Salva a posição e automações antes de aceitar o convite
+        if not EventMemory.IsActive or EventMemory.CurrentEvent ~= "Boss" then
+            pauseAutomationsForEvent("Boss")
+        end
+        bossDiedInCurrentEvent = false
         
         -- Dispara o Remote para o servidor aceitar o convite
         if RemoteBossEventResponse then
@@ -5950,9 +5998,22 @@ spawnThread(function()
     end
 end)
 
+if RemoteBossEventReward then
+    local brConn = RemoteBossEventReward.OnClientEvent:Connect(function(...)
+        print("[Auto Boss] RemoteBossEventReward recebido! Boss finalizado com recompensa.")
+        if (EventMemory.IsActive and EventMemory.CurrentEvent == "Boss") or isBossFighting or wasFightingBoss or (isBossActive and isBossActive()) then
+            finishBossAndResetCharacter("Recompensa do Boss recebida")
+        end
+    end)
+    table.insert(ActiveConnections, brConn)
+end
+
 if RemoteBossEventPrompt then
     local bpConn = RemoteBossEventPrompt.OnClientEvent:Connect(function(...)
         if Config.AutoEnterBoss then
+            if not EventMemory.IsActive or EventMemory.CurrentEvent ~= "Boss" then
+                pauseAutomationsForEvent("Boss")
+            end
             checkAndAcceptBossInvite()
             if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
         end
@@ -5963,6 +6024,9 @@ end
 if RemoteBossEventCountdown then
     local bcConn = RemoteBossEventCountdown.OnClientEvent:Connect(function(secondsLeft)
         if secondsLeft and secondsLeft <= 5 and secondsLeft > 0 and Config.AutoEnterBoss then
+            if not EventMemory.IsActive or EventMemory.CurrentEvent ~= "Boss" then
+                pauseAutomationsForEvent("Boss")
+            end
             checkAndAcceptBossInvite()
             if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
         end
@@ -5980,8 +6044,15 @@ if RemoteBossEventUpdate then
         end
         if phase then bossEventPhase = phase end
         if phase == "Active" and Config.AutoEnterBoss then
+            if not EventMemory.IsActive or EventMemory.CurrentEvent ~= "Boss" then
+                pauseAutomationsForEvent("Boss")
+            end
             checkAndAcceptBossInvite()
             if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
+        elseif (phase == "Finished" or phase == "Ended" or phase == "Inactive" or phase == "Cooldown") and Config.AutoEnterBoss then
+            if (EventMemory.IsActive and EventMemory.CurrentEvent == "Boss") or isBossFighting or wasFightingBoss then
+                finishBossAndResetCharacter("Fase do Boss finalizada: " .. tostring(phase))
+            end
         end
     end)
     table.insert(ActiveConnections, buConn)
@@ -5999,6 +6070,21 @@ spawnThread(function()
                 if isBossFighting or wasFightingBoss then
                     isBossFighting = false
                     wasFightingBoss = false
+                end
+                -- Se AutoEnterBoss está ativo e o Boss terminou (sem barra de vida nem convite):
+                if EventMemory.IsActive and EventMemory.CurrentEvent == "Boss" and not isHandlingBossFinish then
+                    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+                    local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+                    local bhb = top and top:FindFirstChild("BossHealthBar")
+                    local bfi = top and top:FindFirstChild("BossFightInvite")
+                    if (not bhb or not bhb.Visible) and (not bfi or not bfi.Visible) and bossEventPhase ~= "Active" then
+                        bossMissingFrames = bossMissingFrames + 1
+                        if bossMissingFrames >= 8 then
+                            finishBossAndResetCharacter("Boss finalizado")
+                        end
+                    else
+                        bossMissingFrames = 0
+                    end
                 end
                 task.wait(0.5)
                 return
@@ -6514,7 +6600,24 @@ spawnThread(function()
                         EventMemory.HasResetForRaid = false
                         disarmedRaidContainers = setmetatable({}, { __mode = "k" })
                         print("[Auto Raid] Raid finalizada com sucesso! Retomando funções salvas...")
-                        task.wait(1.5)
+                        task.wait(1.0)
+                        
+                        -- Se Config.EventReturnMemory estiver ativado, dá um reset para sair do mapa da raid
+                        if Config.EventReturnMemory then
+                            print("[Auto Raid] Resetando personagem para sair da Raid e retornar à atividade anterior...")
+                            pcall(function()
+                                local char = LocalPlayer.Character
+                                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                                if hum and hum.Health > 0 then
+                                    hum.Health = 0
+                                elseif char then
+                                    char:BreakJoints()
+                                end
+                            end)
+                            task.wait(1.0)
+                            waitForCharacterAlive(8)
+                        end
+                        
                         resumeAutomationsAfterEvent("Raid")
                     end
                 end
