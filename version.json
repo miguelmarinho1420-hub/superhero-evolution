@@ -1,6 +1,6 @@
 {
-  "timestamp": 1790878359,
-  "commit": "6a237e4",
-  "message": "feat: auto aceitar convite do boss e resetar para retomar tarefa anterior",
-  "date": "2026-10-01 15:12:41"
+  "timestamp": 1790878496,
+  "commit": "ef403f5",
+  "message": "feat: auto aceitar boss invite e reset com retorno a tarefa anterior",
+  "date": "2026-10-01 15:14:59"
 }
