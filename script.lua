@@ -242,6 +242,7 @@ loadConfig = nil
 serverHop = nil
 equipTitle = nil
 updateTitleCardVisual = nil
+autoSyncActiveTitle = nil
 MainStatsCard = nil
 EventStatusCard = nil
 MiniBar = nil
@@ -2067,15 +2068,76 @@ pcall(function()
     end
 end)
 
+local currentEquippedTitle = nil
+
 equipTitle = function(titleId)
     if not titleId or not RemoteEquipTitle then return end
     pcall(function()
         RemoteEquipTitle:InvokeServer(titleId)
+        currentEquippedTitle = titleId
         task.defer(function()
             if updateTitleCardVisual then updateTitleCardVisual() end
         end)
     end)
 end
+
+local function getDesiredTitleForCurrentActivity()
+    -- 1. Arena Boss ou Obby / Raid (Prioridade Máxima de Eventos)
+    local inBoss = (isBossFighting == true) or (isBossActive and isBossActive())
+    local inRaid = (isRaidActive and isRaidActive()) or (isInsideRaid and isInsideRaid())
+    
+    if inBoss or inRaid then
+        if Config.TitleBossEnabled and Config.TitleBoss and Config.TitleBoss ~= "" then
+            return Config.TitleBoss
+        end
+    end
+    
+    -- 2. Auto CO-OP / Endless
+    local inEndless = (isInsideEndless and isInsideEndless()) or (Config.AutoEndless and not inBoss and not inRaid)
+    if inEndless then
+        if Config.TitleCoopEnabled and Config.TitleCoop and Config.TitleCoop ~= "" then
+            return Config.TitleCoop
+        end
+    end
+    
+    -- 3. Auto Win / Progressão
+    if Config.AutoWin and not inBoss and not inRaid and not inEndless then
+        if Config.TitleWinEnabled and Config.TitleWin and Config.TitleWin ~= "" then
+            return Config.TitleWin
+        end
+    end
+    
+    -- 4. Treino
+    if Config.AutoTrain and not inBoss and not inRaid and not inEndless then
+        if Config.TitleTrainEnabled and Config.TitleTrain and Config.TitleTrain ~= "" then
+            return Config.TitleTrain
+        end
+    end
+    
+    return nil
+end
+
+autoSyncActiveTitle = function(force)
+    if not RemoteEquipTitle then return end
+    pcall(function()
+        local desired = getDesiredTitleForCurrentActivity()
+        if desired and desired ~= "" and (force or desired ~= currentEquippedTitle) then
+            RemoteEquipTitle:InvokeServer(desired)
+            currentEquippedTitle = desired
+            task.defer(function()
+                if updateTitleCardVisual then updateTitleCardVisual() end
+            end)
+        end
+    end)
+end
+
+-- Thread contínua para manter o título correto equipado em tempo real para o modo em execução
+spawnThread(function()
+    while true do
+        pcall(function() autoSyncActiveTitle(false) end)
+        task.wait(1.0)
+    end
+end)
 
 local function getCurrentMap()
     local char = LocalPlayer.Character
@@ -5354,47 +5416,56 @@ do
     -- 1. Arena Boss e Obby
     createToggle(TitulosTab, "⚔️ Arena Boss e Obby", Config.TitleBossEnabled, function(val)
         Config.TitleBossEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     createLabel(TitulosTab, "Título para Arena Boss e Obby")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleBoss, function(id)
         Config.TitleBoss = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
     -- 2. Treino
     createToggle(TitulosTab, "⚡ Treino", Config.TitleTrainEnabled, function(val)
         Config.TitleTrainEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     createLabel(TitulosTab, "Título para Treino")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleTrain, function(id)
         Config.TitleTrain = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
     -- 3. PvP
     createToggle(TitulosTab, "🥊 PvP", Config.TitlePvpEnabled, function(val)
         Config.TitlePvpEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     createLabel(TitulosTab, "Título para PvP")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitlePvp, function(id)
         Config.TitlePvp = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
     -- 4. Vitória
     createToggle(TitulosTab, "🏆 Vitória", Config.TitleWinEnabled, function(val)
         Config.TitleWinEnabled = val
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     createLabel(TitulosTab, "Título para Vitória")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleWin, function(id)
         Config.TitleWin = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     
     -- 5. Auto CO-OP
     createToggle(TitulosTab, "🌀 Auto CO-OP", Config.TitleCoopEnabled, function(val)
         Config.TitleCoopEnabled = val
-        if val and isInsideEndless() then equipTitle(Config.TitleCoop) end
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
     createLabel(TitulosTab, "Título para Auto CO-OP")
     createDropdown(TitulosTab, "", AllTitlesList, Config.TitleCoop, function(id)
         Config.TitleCoop = id
+        if autoSyncActiveTitle then autoSyncActiveTitle(true) end
     end)
 end
 
@@ -5684,8 +5755,6 @@ end
 
 -- Thread de Combate Boss de Arena (Thanos / Doom / Tung Sahur / Kong)
 spawnThread(function()
-    local bossCircleAngle = 0
-    local lastCircleTick = os.clock()
     local lastAttackTick = 0
     local bossMissingFrames = 0
     local lastBossImmunityChar = nil
@@ -5701,9 +5770,6 @@ spawnThread(function()
                 return
             end
             local now = os.clock()
-            local dt = now - lastCircleTick
-            lastCircleTick = now
-            if dt <= 0 or dt > 0.2 then dt = 0.02 end
             
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -5720,7 +5786,7 @@ spawnThread(function()
             
             if (isBhbVisible or hasLiveBoss) and bossStartTime == 0 then
                 bossStartTime = now
-                print("[Auto Boss] Boss detectado! Entrando em combate com voo circular.")
+                print("[Auto Boss] Boss detectado! Entrando em combate com teleporte direto.")
             end
             
             -- Checagem de morte direta do Humanoid: Se morrer no Boss, reativa o Auto Endless com atraso de 15 segundos
@@ -5780,33 +5846,22 @@ spawnThread(function()
                     end
                     lastKnownBossPos = bossPos
                     
-                    -- Se estiver muito longe do ponto do Boss, aproxima diretamente
-                    if (hrp.Position - bossPos).Magnitude > 150 then
-                        if LocalPlayer.RequestStreamAroundAsync then
+                    -- Posicionamento no Boss: Teleporta diretamente quando a distância for > 10 studs (Sem voo circular)
+                    local distToBoss = (hrp.Position - bossPos).Magnitude
+                    if distToBoss > 10 then
+                        if distToBoss > 150 and LocalPlayer.RequestStreamAroundAsync then
                             pcall(function() LocalPlayer:RequestStreamAroundAsync(bossPos) end)
                         end
-                        hrp.CFrame = CFrame.new(bossPos + Vector3.new(0, 5, 0))
-                        task.wait(0.1)
+                        -- Teleporta a 3.5 studs de distância em frente ao Boss, olhando diretamente para ele
+                        local bHrp = hasLiveBoss and bossModel and (bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart or bossModel:FindFirstChildWhichIsA("BasePart"))
+                        local forwardVec = bHrp and bHrp.CFrame.LookVector or Vector3.new(0, 0, 1)
+                        local attackPos = bossPos + (forwardVec * 3.5) + Vector3.new(0, 1.0, 0)
+                        hrp.CFrame = CFrame.lookAt(attackPos, bossPos)
+                    else
+                        -- Já está a menos de 10 studs: mantém o personagem virado firmemente para o Boss atacando
+                        hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(bossPos.X, hrp.Position.Y, bossPos.Z))
                     end
                     
-                    -- VOO CIRCULAR EM TORNO DO BOSS
-                    -- Altura: 5 studs acima do Boss (bossPos.Y + 5)
-                    -- Velocidade: Segue dinamicamente Config.WalkSpeed configurado no Hub (alterável via slider)
-                    -- Raio: 8 studs em torno do Boss
-                    local radius = 8
-                    local walkSpeedVal = tonumber(Config.WalkSpeed) or 60
-                    if walkSpeedVal < 16 then walkSpeedVal = 16 end
-                    
-                    local angularSpeed = walkSpeedVal / radius
-                    bossCircleAngle = (bossCircleAngle + angularSpeed * dt) % (2 * math.pi)
-                    
-                    local targetX = bossPos.X + math.cos(bossCircleAngle) * radius
-                    local targetZ = bossPos.Z + math.sin(bossCircleAngle) * radius
-                    local targetY = bossPos.Y + 5
-                    local targetPos = Vector3.new(targetX, targetY, targetZ)
-                    
-                    -- Posiciona voando em círculo na altura de 5 studs e olhando diretamente para o Boss
-                    hrp.CFrame = CFrame.lookAt(targetPos, bossPos)
                     hrp.Velocity = Vector3.zero
                     hrp.RotVelocity = Vector3.zero
                     if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.zero end
@@ -5916,6 +5971,7 @@ spawnThread(function()
                         EventMemory.HasResetForRaid = true
                         task.spawn(function()
                             performResetAndAccept("Raid", function()
+                                if autoSyncActiveTitle then autoSyncActiveTitle(true) end
                                 if RemoteRaidJoinRequest then RemoteRaidJoinRequest:FireServer() end
                                 if RemoteRaidReviveRequest then RemoteRaidReviveRequest:FireServer() end
                                 local RemoteRaidStateRequest = Remotes and Remotes:FindFirstChild("RaidStateRequest")
