@@ -420,6 +420,9 @@ local function isArenaBossForbidden(model)
     return false
 end
 
+local cachedBossModel = nil
+local cachedBossHum = nil
+
 local function getActiveBossModel()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
@@ -429,11 +432,13 @@ local function getActiveBossModel()
     local isBarActive = (bhb and bhb.Visible == true) or (ebm and ebm.Visible == true) or (bfi and bfi.Visible == true)
 
     if not isBossFighting and not isBarActive and not bossWaitingForSpawn and not bossPlayerJoined and bossEventPhase ~= "Active" then
+        cachedBossModel = nil
+        cachedBossHum = nil
         return nil, nil
     end
 
     local function isValidBoss(m)
-        if not m or not m:IsA("Model") or isArenaBossForbidden(m) then return false end
+        if not m or not m:IsA("Model") or not m.Parent or isArenaBossForbidden(m) then return false end
         if m == LocalPlayer.Character or Players:GetPlayerFromCharacter(m) ~= nil then return false end
         local bHum = m:FindFirstChildOfClass("Humanoid")
         local dying = m:GetAttribute("BEDying")
@@ -453,6 +458,14 @@ local function getActiveBossModel()
         return false
     end
 
+    -- Se o boss já cacheado ainda estiver válido e no workspace, retorna instantaneamente (0ms)
+    if cachedBossModel and isValidBoss(cachedBossModel) then
+        return cachedBossModel, cachedBossHum
+    else
+        cachedBossModel = nil
+        cachedBossHum = nil
+    end
+
     -- 1. Se a barra de vida estiver visível com o nome do Boss, procurar por esse nome
     local targetBossName = nil
     if bhb and bhb.Visible then
@@ -466,7 +479,11 @@ local function getActiveBossModel()
         for _, child in ipairs(workspace:GetChildren()) do
             if child:IsA("Model") and string.find(string.lower(child.Name), targetBossName, 1, true) then
                 local valid, bHum = isValidBoss(child)
-                if valid then return child, bHum end
+                if valid then
+                    cachedBossModel = child
+                    cachedBossHum = bHum
+                    return child, bHum
+                end
             end
         end
     end
@@ -479,7 +496,11 @@ local function getActiveBossModel()
             for _, bKey in ipairs(knownBosses) do
                 if string.find(lowName, bKey, 1, true) then
                     local valid, bHum = isValidBoss(child)
-                    if valid then return child, bHum end
+                    if valid then
+                        cachedBossModel = child
+                        cachedBossHum = bHum
+                        return child, bHum
+                    end
                 end
             end
         end
@@ -491,7 +512,11 @@ local function getActiveBossModel()
         for _, child in ipairs(bossStage:GetDescendants()) do
             if child:IsA("Model") then
                 local valid, bHum = isValidBoss(child)
-                if valid then return child, bHum end
+                if valid then
+                    cachedBossModel = child
+                    cachedBossHum = bHum
+                    return child, bHum
+                end
             end
         end
     end
@@ -500,7 +525,11 @@ local function getActiveBossModel()
     for _, child in ipairs(workspace:GetChildren()) do
         if child:IsA("Model") and (child:GetAttribute("BEName") or child:GetAttribute("EnemyId") or CollectionService:HasTag(child, "BossEventNPC")) then
             local valid, bHum = isValidBoss(child)
-            if valid then return child, bHum end
+            if valid then
+                cachedBossModel = child
+                cachedBossHum = bHum
+                return child, bHum
+            end
         end
     end
 
@@ -511,7 +540,11 @@ local function getActiveBossModel()
             local cf = child:GetPivot()
             if (cf.Position - arenaPos).Magnitude < 220 then
                 local valid, bHum = isValidBoss(child)
-                if valid then return child, bHum end
+                if valid then
+                    cachedBossModel = child
+                    cachedBossHum = bHum
+                    return child, bHum
+                end
             end
         end
     end
@@ -1443,7 +1476,7 @@ spawnThread(function()
                 end
             end)
         end
-        task.wait(0.15)
+        task.wait(0.75)
     end
 end)
 end
@@ -3415,7 +3448,16 @@ local function isPaidOrRobuxZone(inst)
     return false
 end
 
+local cachedBagZoneId = nil
+local cachedBag = nil
+local cachedHitbox = nil
+local cachedModel = nil
+
 local function findTrainingBag(worldNum, zoneId)
+    if cachedBagZoneId == zoneId and cachedBag and cachedBag.Parent and cachedHitbox and cachedHitbox.Parent then
+        return cachedBag, cachedHitbox, cachedModel
+    end
+
     local mapName = "Map"
     if worldNum == 2 then mapName = "MapTest"
     elseif worldNum and worldNum >= 3 then mapName = "Map" .. worldNum end
@@ -3423,28 +3465,41 @@ local function findTrainingBag(worldNum, zoneId)
     local map = workspace:FindFirstChild(mapName)
     if not map then return nil, nil end
     
-    for _, d in ipairs(map:GetDescendants()) do
+    local zoneContainer = map:FindFirstChild("TrainingZones") or map:FindFirstChild("Zones")
+    local searchIn = (zoneContainer and zoneContainer:GetChildren()) or map:GetDescendants()
+    
+    for _, d in ipairs(searchIn) do
         if d:IsA("Model") and (d:GetAttribute("ZoneId") == tostring(zoneId) or d.Name == "TrainingZone" .. tostring(zoneId)) then
             if Config.TrainZoneFilter == "free" and isPaidOrRobuxZone(d) then
                 -- Ignora se filtro estiver configurado para apenas grátis
             else
                 local bag = d:FindFirstChild("PunchingBag")
                 local hb = d:FindFirstChild("Hitbox")
+                cachedBagZoneId = zoneId
+                cachedBag = bag
+                cachedHitbox = hb
+                cachedModel = d
                 return bag, hb, d
             end
         end
     end
-    for _, d in ipairs(map:GetDescendants()) do
+    for _, d in ipairs(searchIn) do
         if d:IsA("Model") and d.Name:match("^TrainingZone") then
             if not (Config.TrainZoneFilter == "free" and isPaidOrRobuxZone(d)) then
                 local bag = d:FindFirstChild("PunchingBag")
                 local hb = d:FindFirstChild("Hitbox")
+                cachedBagZoneId = zoneId
+                cachedBag = bag
+                cachedHitbox = hb
+                cachedModel = d
                 return bag, hb, d
             end
         end
     end
     return nil, nil
 end
+
+local ownedGamepassesCache = {}
 
 local function getBestUnlockedZone(specificWorld, filterType)
     local rebirths = 0
@@ -3468,11 +3523,16 @@ local function getBestUnlockedZone(specificWorld, filterType)
             if z.IsRobux then
                 if targetFilter == "all" or targetFilter == "robux" then
                     local owns = false
-                    pcall(function()
-                        if z.GamepassId then
-                            owns = MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, z.GamepassId)
+                    if z.GamepassId then
+                        if ownedGamepassesCache[z.GamepassId] ~= nil then
+                            owns = ownedGamepassesCache[z.GamepassId]
+                        else
+                            pcall(function()
+                                owns = MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, z.GamepassId)
+                                ownedGamepassesCache[z.GamepassId] = owns
+                            end)
                         end
-                    end)
+                    end
                     isAvailable = owns
                 end
             else
@@ -3521,14 +3581,36 @@ local function findNearbyTrainingHitbox(hrp, maxDist)
     return bestHb
 end
 
--- Helper para detectar inimigo vivo proximo (Boss, Raid, Endless, Estagio ou PVP)
+local cachedCombatEnemy = nil
+local lastCombatEnemyTime = 0
+
+-- Helper para detectar inimigo vivo proximo otimizado (com cache e busca direcionada, sem GetDescendants global)
 local function findNearbyCombatEnemy(hrp, maxDist)
     if not hrp then return nil end
     local pPos = hrp.Position
-    local bestEnemy = nil
     local bestDist = maxDist or 50
+    local now = os.clock()
     
-    for _, m in ipairs(workspace:GetDescendants()) do
+    -- Reutiliza alvo cacheado se ainda estiver vivo e dentro da proximidade (0ms)
+    if cachedCombatEnemy and cachedCombatEnemy.Parent then
+        local hum = cachedCombatEnemy:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            local eRoot = cachedCombatEnemy:FindFirstChild("HumanoidRootPart") or cachedCombatEnemy.PrimaryPart or cachedCombatEnemy:FindFirstChildWhichIsA("BasePart")
+            if eRoot and (eRoot.Position - pPos).Magnitude <= (bestDist + 15) then
+                return cachedCombatEnemy
+            end
+        end
+    end
+    
+    -- Se realizou busca nos últimos 0.25s e não achou nada, evita re-escanear desnecessariamente a cada clique
+    if now - lastCombatEnemyTime < 0.25 and cachedCombatEnemy == nil then
+        return nil
+    end
+    lastCombatEnemyTime = now
+    
+    local bestEnemy = nil
+    
+    local function evaluateModel(m)
         if m:IsA("Model") and m ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(m) then
             local hum = m:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
@@ -3543,12 +3625,48 @@ local function findNearbyCombatEnemy(hrp, maxDist)
             end
         end
     end
+    
+    -- 1. Pastas e contêineres específicos onde inimigos realmente existem
+    local containers = {}
+    local curMap = getCurrentMap()
+    if curMap then
+        local st = curMap:FindFirstChild("Stages")
+        if st then table.insert(containers, st) end
+        local en = curMap:FindFirstChild("Enemies") or curMap:FindFirstChild("Mobs")
+        if en then table.insert(containers, en) end
+    end
+    for _, name in ipairs({"Boss", "BossArena", "Raid", "ActiveRaid", "Endless", "Enemies", "Mobs"}) do
+        local f = workspace:FindFirstChild(name)
+        if f then table.insert(containers, f) end
+    end
+    
+    for _, c in ipairs(containers) do
+        for _, child in ipairs(c:GetChildren()) do
+            evaluateModel(child)
+            if child:IsA("Folder") or child:IsA("Model") then
+                for _, sub in ipairs(child:GetChildren()) do
+                    evaluateModel(sub)
+                end
+            end
+        end
+        if bestEnemy and bestDist < 20 then break end
+    end
+    
+    -- 2. Se não achou em nenhuma pasta dedicada, checa filhos diretos do workspace
+    if not bestEnemy then
+        for _, child in ipairs(workspace:GetChildren()) do
+            evaluateModel(child)
+        end
+    end
+    
+    cachedCombatEnemy = bestEnemy
     return bestEnemy
 end
 
 spawnThread(function()
     local lastBagHitbox = nil
     local lastBagCheck = 0
+    local lastStatsUpdate = 0
     while true do
         if Config.FastClick then
             pcall(function()
@@ -3567,7 +3685,6 @@ spawnThread(function()
                 if lastBagHitbox and lastBagHitbox.Parent then
                     if firetouchinterest then
                         firetouchinterest(hrp, lastBagHitbox, 0)
-                        task.wait(0.01)
                         firetouchinterest(hrp, lastBagHitbox, 1)
                     end
                     if RemoteRequestTrain then
@@ -3596,8 +3713,13 @@ spawnThread(function()
                 Config.ClicksCount = Config.ClicksCount + 1
             end)
             
-            if MainStatsCard then
-                MainStatsCard.Update("Clicks: " .. Config.ClicksCount .. " | Rebirths: " .. SessionRebirths, Themes.Accent2)
+            -- Atualiza o card de status no máximo 4 vezes por segundo (a cada 0.25s) para economizar renderização de UI
+            local now = tick()
+            if now - lastStatsUpdate >= 0.25 then
+                lastStatsUpdate = now
+                if MainStatsCard then
+                    MainStatsCard.Update("Clicks: " .. Config.ClicksCount .. " | Rebirths: " .. SessionRebirths, Themes.Accent2)
+                end
             end
         end
         local cps = math.clamp(Config.ClickCPS or 10, 1, 50)
@@ -3606,6 +3728,7 @@ spawnThread(function()
 end)
 
 spawnThread(function()
+    local lastDisabledBag = nil
     while true do
         if Config.AutoTrain and not isBossActive() and not Config.AutoEndless and not isInsideEndless() and not (isRaidActive() and Config.AutoEnterRaid) and not isInsideRaid() then
             pcall(function()
@@ -3641,8 +3764,9 @@ spawnThread(function()
                 
                 local bag, hitbox = findTrainingBag(wNum, targetZone.Id)
                 if bag or hitbox then
-                    -- Desativa colisão física das partes do PunchingBag para impedir que empurre o jogador para trás
-                    if bag then
+                    -- Desativa colisão física das partes do PunchingBag (apenas 1 vez quando mudar de saco)
+                    if bag and bag ~= lastDisabledBag then
+                        lastDisabledBag = bag
                         for _, p in ipairs(bag:GetDescendants()) do
                             if p:IsA("BasePart") and p.CanCollide then
                                 p.CanCollide = false
@@ -3677,7 +3801,6 @@ spawnThread(function()
                     
                     if hitbox and firetouchinterest then
                         firetouchinterest(hrp, hitbox, 0)
-                        task.wait(0.02)
                         firetouchinterest(hrp, hitbox, 1)
                     end
                     
@@ -3863,8 +3986,8 @@ local function glideToCFrame(targetCFrame, speed)
     
     local ncConn = RunService.Stepped:Connect(function()
         if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
+            for _, part in ipairs(char:GetChildren()) do
+                if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
             end
         end
     end)
@@ -4873,6 +4996,7 @@ end)
 
 createToggle(ConfigTab, "Atravessar Paredes", Config.Noclip, function(val)
     Config.Noclip = val
+    if updateNoclip then updateNoclip() end
 end)
 
 createSectionHeader(ConfigTab, "🕊️ VOO")
@@ -4908,17 +5032,34 @@ local jumpConn = UserInputService.JumpRequest:Connect(function()
 end)
 table.insert(ActiveConnections, jumpConn)
 
-local noclipConn = RunService.Stepped:Connect(function()
+local noclipConn = nil
+local function updateNoclip()
     if Config.Noclip then
-        local char = LocalPlayer.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
-            end
+        if not noclipConn then
+            noclipConn = RunService.Stepped:Connect(function()
+                if not Config.Noclip then
+                    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+                    return
+                end
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetChildren()) do
+                        if part:IsA("BasePart") and part.CanCollide then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+            table.insert(ActiveConnections, noclipConn)
+        end
+    else
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
         end
     end
-end)
-table.insert(ActiveConnections, noclipConn)
+end
+if Config.Noclip then updateNoclip() end
 
 spawnThread(function()
     while true do
@@ -4934,16 +5075,6 @@ spawnThread(function()
         task.wait(0.25)
     end
 end)
-
-local speedCharConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
-    if Config.WalkSpeedEnabled then
-        task.wait(0.5)
-        local hum = newChar:WaitForChild("Humanoid", 5)
-        if hum then hum.WalkSpeed = Config.WalkSpeed end
-    end
-end)
-table.insert(ActiveConnections, speedCharConn)
-
 
 applyInvisibility = function(state)
     local char = LocalPlayer.Character
@@ -4966,19 +5097,6 @@ local invisCharConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     end
 end)
 table.insert(ActiveConnections, invisCharConn)
-
-spawnThread(function()
-    while true do
-        if Config.WalkSpeedEnabled then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum and hum.WalkSpeed ~= Config.WalkSpeed then hum.WalkSpeed = Config.WalkSpeed end
-            end)
-        end
-        task.wait(0.3)
-    end
-end)
 
 local flyBV = nil
 local flyBG = nil
@@ -5441,6 +5559,7 @@ spawnThread(function()
     local lastCircleTick = os.clock()
     local lastAttackTick = 0
     local bossMissingFrames = 0
+    local lastBossImmunityChar = nil
     
     while true do
         pcall(function()
@@ -5506,17 +5625,20 @@ spawnThread(function()
                 end
                 
                 if hrp and hum and hum.Health > 0 and Config.BossAutoAttack then
-                    -- Imunidade a toques de projéteis/hazards e sobrevivência
-                    for _, p in ipairs(char:GetDescendants()) do
-                        if p:IsA("BasePart") then
-                            p.CanTouch = false
-                            p.CanCollide = false
+                    -- Imunidade a toques de projéteis/hazards e sobrevivência (apenas 1 vez por spawn)
+                    if lastBossImmunityChar ~= char then
+                        lastBossImmunityChar = char
+                        for _, p in ipairs(char:GetDescendants()) do
+                            if p:IsA("BasePart") then
+                                p.CanTouch = false
+                                p.CanCollide = false
+                            end
                         end
+                        hum.BreakJointsOnDeath = false
+                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
+                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
                     end
-                    hum.BreakJointsOnDeath = false
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
                     
                     -- Determina a posição alvo do Boss
                     local bossPos = nil
@@ -5602,11 +5724,14 @@ end)
 --  MOTOR DE INVASÃO & RAID (SISTEMA DOMINÓ CONNECTORS + SALA-A-SALA)
 -- ══════════════════════════════════════════════════════════════
 local wasInRaid = false
+local disarmedRaidContainers = setmetatable({}, { __mode = "k" })
 
 local function getStageAliveEnemies(stageFolder)
     local enemies = {}
     if not stageFolder then return enemies end
-    for _, d in ipairs(stageFolder:GetDescendants()) do
+    local enemiesContainer = stageFolder:FindFirstChild("Enemies") or stageFolder:FindFirstChild("Mobs")
+    local targets = enemiesContainer and enemiesContainer:GetChildren() or stageFolder:GetDescendants()
+    for _, d in ipairs(targets) do
         if d:IsA("Model") and not Players:GetPlayerFromCharacter(d) then
             local hum = d:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
@@ -5621,7 +5746,8 @@ local function getStageAliveEnemies(stageFolder)
 end
 
 local function disarmRaidHazards(container)
-    if not container then return end
+    if not container or disarmedRaidContainers[container] then return end
+    disarmedRaidContainers[container] = true
     for _, d in ipairs(container:GetDescendants()) do
         if d:IsA("BasePart") then
             local dn = d.Name:lower()
@@ -5642,6 +5768,7 @@ local function disarmRaidHazards(container)
 end
 
 spawnThread(function()
+    local lastRaidImmuneChar = nil
     while true do
         if Config.AutoEnterRaid then
             pcall(function()
@@ -5692,11 +5819,14 @@ spawnThread(function()
                     local hum = char and char:FindFirstChildOfClass("Humanoid")
                     
                     if hum and hum.Health > 0 and hrp then
-                        -- Imunidade a ragdoll/queda e proteção do personagem durante a Raid
-                        hum.BreakJointsOnDeath = false
-                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
-                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
-                        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
+                        -- Imunidade a ragdoll/queda e proteção do personagem durante a Raid (apenas 1 vez por spawn)
+                        if lastRaidImmuneChar ~= char then
+                            lastRaidImmuneChar = char
+                            hum.BreakJointsOnDeath = false
+                            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+                            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
+                            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
+                        end
                         
                         -- Dispara remotes de entrada/revive na Raid
                         if RemoteRaidJoinRequest then RemoteRaidJoinRequest:FireServer() end
@@ -5894,16 +6024,37 @@ spawnThread(function()
                                         task.wait(0.1)
                                     end
                                     
-                                    -- Prioridade 1: Quebra Totens de Cura (Wards / Totem)
+                                    -- Prioridade 1: Quebra Totens de Cura (Wards / Totem) | Prioridade 2: Ataca o Boss Skeletor
                                     local targetWard = nil
-                                    for _, m in ipairs(currentStage.Folder:GetDescendants()) do
-                                        local mn = m.Name:lower()
-                                        if (mn:find("ward") or mn:find("totem")) and m:IsA("Model") then
+                                    local bossModel = nil
+                                    
+                                    local searchPool = currentStage.Folder:GetChildren()
+                                    for _, m in ipairs(searchPool) do
+                                        if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then
+                                            local mn = m.Name:lower()
                                             local wHum = m:FindFirstChildOfClass("Humanoid")
-                                            local wPart = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
-                                            if wPart and (not wHum or wHum.Health > 0) then
+                                            local wPart = m.PrimaryPart or m:FindFirstChild("HumanoidRootPart") or m:FindFirstChildWhichIsA("BasePart")
+                                            if (mn:find("ward") or mn:find("totem")) and wPart and (not wHum or wHum.Health > 0) then
                                                 targetWard = wPart
                                                 break
+                                            elseif wHum and wHum.Health > 0 and not bossModel then
+                                                bossModel = m
+                                            end
+                                        end
+                                    end
+                                    
+                                    if not targetWard and not bossModel then
+                                        for _, m in ipairs(currentStage.Folder:GetDescendants()) do
+                                            if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then
+                                                local mn = m.Name:lower()
+                                                local wHum = m:FindFirstChildOfClass("Humanoid")
+                                                local wPart = m.PrimaryPart or m:FindFirstChild("HumanoidRootPart") or m:FindFirstChildWhichIsA("BasePart")
+                                                if (mn:find("ward") or mn:find("totem")) and wPart and (not wHum or wHum.Health > 0) then
+                                                    targetWard = wPart
+                                                    break
+                                                elseif wHum and wHum.Health > 0 and not bossModel then
+                                                    bossModel = m
+                                                end
                                             end
                                         end
                                     end
@@ -5918,33 +6069,19 @@ spawnThread(function()
                                         local RemotePlayerConePunch = Remotes and Remotes:FindFirstChild("PlayerConePunch")
                                         if RemotePlayerConePunch then pcall(function() RemotePlayerConePunch:FireServer() end) end
                                         Config.ClicksCount = Config.ClicksCount + 1
-                                    else
-                                        -- Prioridade 2: Ataca o Boss Skeletor
-                                        local bossModel = nil
-                                        for _, m in ipairs(currentStage.Folder:GetDescendants()) do
-                                            if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then
-                                                local bHum = m:FindFirstChildOfClass("Humanoid")
-                                                if bHum and bHum.Health > 0 then
-                                                    bossModel = m
-                                                    break
-                                                end
-                                            end
-                                        end
-                                        
-                                        if bossModel then
-                                            local bHrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart or bossModel:FindFirstChildWhichIsA("BasePart")
-                                            if bHrp then
-                                                local bPos = bHrp.Position
-                                                hrp.CFrame = CFrame.lookAt(Vector3.new(bPos.X, bPos.Y + 2.5, bPos.Z + 5), bPos)
-                                                hrp.Velocity = Vector3.zero
-                                                VirtualUser:CaptureController()
-                                                VirtualUser:ClickButton1(Vector2.new(0, 0))
-                                                if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
-                                                if RemotePlayerClick then RemotePlayerClick:FireServer() end
-                                                local RemotePlayerConePunch = Remotes and Remotes:FindFirstChild("PlayerConePunch")
-                                                if RemotePlayerConePunch then pcall(function() RemotePlayerConePunch:FireServer() end) end
-                                                Config.ClicksCount = Config.ClicksCount + 1
-                                            end
+                                    elseif bossModel then
+                                        local bHrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart or bossModel:FindFirstChildWhichIsA("BasePart")
+                                        if bHrp then
+                                            local bPos = bHrp.Position
+                                            hrp.CFrame = CFrame.lookAt(Vector3.new(bPos.X, bPos.Y + 2.5, bPos.Z + 5), bPos)
+                                            hrp.Velocity = Vector3.zero
+                                            VirtualUser:CaptureController()
+                                            VirtualUser:ClickButton1(Vector2.new(0, 0))
+                                            if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                                            if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                                            local RemotePlayerConePunch = Remotes and Remotes:FindFirstChild("PlayerConePunch")
+                                            if RemotePlayerConePunch then pcall(function() RemotePlayerConePunch:FireServer() end) end
+                                            Config.ClicksCount = Config.ClicksCount + 1
                                         end
                                     end
                                 end
@@ -5957,6 +6094,7 @@ spawnThread(function()
                     if wasInRaid then
                         wasInRaid = false
                         EventMemory.HasResetForRaid = false
+                        disarmedRaidContainers = setmetatable({}, { __mode = "k" })
                         print("[Auto Raid] Raid finalizada com sucesso! Retomando funções salvas...")
                         task.wait(1.5)
                         resumeAutomationsAfterEvent("Raid")
