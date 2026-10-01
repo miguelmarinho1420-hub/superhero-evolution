@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895017
+local SCRIPT_VERSION_TIMESTAMP = 1790895238
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -115,8 +115,9 @@ local Config = {
     EndlessWorld = "current",
     AutoHopBlocked = false,
     
-    -- Utilitários & Pop-ups
+    -- Utilitários, Pop-ups & Recompensas
     AutoClosePopups = true, -- Auto fechar pop-ups de Robux / Reanimação e telas
+    AutoClaimPlaytime = true, -- Auto resgatar recompensas de tempo de jogo
     AntiAfk = true,
     
     -- 5. Salvamento de Estado & Server Hop
@@ -149,6 +150,7 @@ local function saveConfig()
             EndlessWorld = Config.EndlessWorld,
             AutoHopBlocked = Config.AutoHopBlocked,
             AutoClosePopups = Config.AutoClosePopups,
+            AutoClaimPlaytime = Config.AutoClaimPlaytime,
             AntiAfk = Config.AntiAfk,
             AutoSaveConfig = Config.AutoSaveConfig,
             SavedAt = os.time(),
@@ -260,6 +262,7 @@ local function queueScriptOnTeleport()
             EndlessWorld = Config.EndlessWorld,
             AutoHopBlocked = Config.AutoHopBlocked,
             AutoClosePopups = Config.AutoClosePopups,
+            AutoClaimPlaytime = Config.AutoClaimPlaytime,
             AntiAfk = Config.AntiAfk,
             AutoSaveConfig = Config.AutoSaveConfig,
             SavedAt = os.time(),
@@ -542,8 +545,8 @@ local function closeGamePopups()
                 for _, desc in ipairs(gui:GetDescendants()) do
                     if desc:IsA("Frame") and desc.Visible and desc.AbsoluteSize.X > 150 and desc.AbsoluteSize.Y > 150 then
                         local fName = desc.Name:lower()
-                        if fName:find("offer") or fName:find("popup") or fName:find("prompt") 
-                            or fName:find("special") or fName:find("pack") or fName:find("reward") then
+                        if (fName:find("offer") or fName:find("popup") or fName:find("prompt") 
+                            or fName:find("special") or fName:find("pack")) and not (fName:find("playtime") or fName:find("gift")) then
                             for _, child in ipairs(desc:GetChildren()) do
                                 if child:IsA("GuiButton") and child.Visible then
                                     local bName = child.Name:lower()
@@ -607,6 +610,89 @@ pcall(function()
             end
         end)
         table.insert(ActiveConnections, conn)
+    end
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- MOTOR DE AUTO RESGATE DE RECOMPENSAS DE TEMPO DE JOGO
+-- ══════════════════════════════════════════════════════════════
+local function claimPlaytimeRewards()
+    if not Config.AutoClaimPlaytime then return end
+    
+    pcall(function()
+        -- 1. Varredura e ativação nos botões da interface (PlayerGui)
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, gui in ipairs(pgui:GetChildren()) do
+                if gui:IsA("ScreenGui") and not gui.Name:match("^SuperHeroEvolutionHub") then
+                    for _, desc in ipairs(gui:GetDescendants()) do
+                        if desc:IsA("GuiButton") then
+                            local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
+                            if text == "" then
+                                for _, c in ipairs(desc:GetChildren()) do
+                                    if c:IsA("TextLabel") and c.Visible then
+                                        text = c.Text:lower()
+                                        break
+                                    end
+                                end
+                            end
+                            
+                            local isClaimed = text:find("reivindicado") or text:find("claimed") or text:find("resgatado")
+                            local isClaimable = (text:find("reivindica") or text:find("claim") or text:find("resgatar") or text:find("coletar") or text:find("pegar")) and not isClaimed
+                            
+                            if isClaimable then
+                                if firesignal then
+                                    firesignal(desc.Activated)
+                                    firesignal(desc.MouseButton1Click)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- 2. Disparo de Remotes no ReplicatedStorage (Shared.Remotes e raiz)
+        local candidateFolders = {}
+        if Remotes then table.insert(candidateFolders, Remotes) end
+        local sharedObj = ReplicatedStorage:FindFirstChild("Shared")
+        if sharedObj then
+            local sRems = sharedObj:FindFirstChild("Remotes") or sharedObj:FindFirstChild("Events")
+            if sRems and sRems ~= Remotes then table.insert(candidateFolders, sRems) end
+        end
+        local rootRems = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:FindFirstChild("Events")
+        if rootRems and rootRems ~= Remotes then table.insert(candidateFolders, rootRems) end
+        
+        for _, f in ipairs(candidateFolders) do
+            for _, rem in ipairs(f:GetChildren()) do
+                local rName = rem.Name:lower()
+                if rName:find("gift") or rName:find("playtime") or rName:find("timereward") or (rName:find("claim") and (rName:find("reward") or rName:find("time") or rName:find("gift"))) then
+                    if rem:IsA("RemoteEvent") then
+                        for i = 1, 12 do
+                            pcall(function() rem:FireServer(i) end)
+                            pcall(function() rem:FireServer(tostring(i)) end)
+                        end
+                        pcall(function() rem:FireServer() end)
+                    elseif rem:IsA("RemoteFunction") then
+                        for i = 1, 12 do
+                            pcall(function() rem:InvokeServer(i) end)
+                            pcall(function() rem:InvokeServer(tostring(i)) end)
+                        end
+                        pcall(function() rem:InvokeServer() end)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Thread contínua para auto-resgatar recompensas de tempo a cada 3.0 segundos
+spawnThread(function()
+    while true do
+        if Config.AutoClaimPlaytime then
+            claimPlaytimeRewards()
+        end
+        task.wait(3.0)
     end
 end)
 
@@ -835,6 +921,7 @@ local WinToggle = nil
 local EndlessToggle = nil
 local AntiAfkToggle = nil
 local AutoClosePopupsToggle = nil
+local PlaytimeToggle = nil
 
 pcall(function()
     local ls = LocalPlayer:WaitForChild("leaderstats", 5)
@@ -3030,6 +3117,22 @@ AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Te
     saveConfig()
 end)
 
+PlaytimeToggle = createToggle(ConfigTab, "Auto Resgatar Recompensas de Tempo", Config.AutoClaimPlaytime, function(val)
+    Config.AutoClaimPlaytime = val
+    saveConfig()
+end)
+
+createButton(ConfigTab, "🎁 Resgatar Recompensas de Tempo Agora", false, function()
+    claimPlaytimeRewards()
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "🎁 Recompensas de Tempo",
+            Text = "Verificando e resgatando recompensas disponíveis...",
+            Duration = 3
+        })
+    end)
+end)
+
 createSectionHeader(ConfigTab, "💾 SALVAMENTO DE ESTADO & SERVER HOP")
 
 createInfoCard(ConfigTab, "📁 Arquivo de Configuração", "SuperHeroEvolution_Config.json", Themes.Success)
@@ -3097,6 +3200,7 @@ local function applyLoadedConfig()
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
+        if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
     end)
 end
 applyLoadedConfig()
