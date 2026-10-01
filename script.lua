@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790895477
+local SCRIPT_VERSION_TIMESTAMP = 1790895485
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -3147,8 +3147,11 @@ createToggle(EndlessTab, "Auto Hop se Bloqueado (+1 min)", Config.AutoHopBlocked
     saveConfig()
 end)
 
-createToggle(EndlessTab, "Auto Fechar Reanimação (11 Robux)", Config.AutoClosePopups, function(val)
+EndlessReviveToggle = createToggle(EndlessTab, "Auto Fechar Reanimação (Segundo Plano)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
+    if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then
+        AutoClosePopupsToggle.Set(val, true)
+    end
     saveConfig()
 end)
 
@@ -3159,8 +3162,11 @@ AntiAfkToggle = createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, f
     saveConfig()
 end)
 
-AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Telas)", Config.AutoClosePopups, function(val)
+AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups (Segundo Plano)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
+    if EndlessReviveToggle and EndlessReviveToggle.Set then
+        EndlessReviveToggle.Set(val, true)
+    end
     saveConfig()
 end)
 
@@ -3208,6 +3214,7 @@ createButton(ConfigTab, "🔄 Recarregar Configurações do Arquivo", false, fun
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
+        if EndlessReviveToggle and EndlessReviveToggle.Set then EndlessReviveToggle.Set(Config.AutoClosePopups == true, true) end
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "🔄 Configurações Recarregadas!",
@@ -3247,6 +3254,7 @@ local function applyLoadedConfig()
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
+        if EndlessReviveToggle and EndlessReviveToggle.Set then EndlessReviveToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
     end)
 end
