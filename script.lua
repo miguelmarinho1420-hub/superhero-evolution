@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790880626
+local SCRIPT_VERSION_TIMESTAMP = 1790880754
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -2626,14 +2626,13 @@ createTab = function(name, icon, layoutOrder)
     return page
 end
 
--- 7 Abas Organizadas
+-- 6 Abas Organizadas
 local TreinoTab = createTab("Treino", "⚡", 1)
 local FarmTab = createTab("Farm", "🏆", 2)
 local OvosTab = createTab("Ovos", "🥚", 3)
 local ConfigTab = createTab("Config", "⚙️", 4)
 local TitulosTab = createTab("Títulos", "👑", 5)
 local EventosTab = createTab("Eventos", "⚔️", 6)
-local MundosTab = createTab("Mundos", "🌍", 7)
 
 -- ══════════════════════════════════════════════════════════════
 -- ️ COMPONENTES VISUAIS (EXATOS DAS FOTOS)
@@ -6670,23 +6669,7 @@ end
 
 table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(handleUniversalCharacterRespawn))
 
--- ══════════════════════════════════════════════════════════════
---  7. ABA MUNDOS (TELEPORTE, PERSISTÊNCIA & SERVIDOR) [FOTO 5]
--- ══════════════════════════════════════════════════════════════
-createSectionHeader(MundosTab, "🌍 TELEPORTE DE MUNDOS")
 
-createLabel(MundosTab, "Selecione o Mundo:")
-
-createDropdown(MundosTab, "", WorldsTeleportList, Config.SelectedTeleportWorld, function(worldNum)
-    Config.SelectedTeleportWorld = tonumber(worldNum) or 1
-end)
-
-createButton(MundosTab, "🚀 TELEPORTAR PARA O MUNDO SELECIONADO", true, function()
-    if RemoteRequestWorldChange and Config.SelectedTeleportWorld then
-        RemoteRequestWorldChange:InvokeServer(Config.SelectedTeleportWorld)
-        print("[Teleporte] Teleportando para o Mundo " .. tostring(Config.SelectedTeleportWorld) .. "...")
-    end
-end)
 
 
 
