@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790877783
+local SCRIPT_VERSION_TIMESTAMP = 1790878359
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -235,6 +235,9 @@ pcall(function()
 end)
 
 -- Forward declarations (Globals para liberar registradores locais do Luau)
+checkAndAcceptBossInvite = nil
+finishBossAndResetCharacter = nil
+isHandlingBossFinish = false
 applySkipAnimation = nil
 applyInvisibility = nil
 startFly = nil
@@ -561,7 +564,7 @@ local function isBossActive()
     if isRaidActive() and Config.AutoEnterRaid then
         return false
     end
-    if isReturningToEndless then return true end
+    if isHandlingBossFinish then return false end
     if bossDiedInCurrentEvent then return false end
     if isBossFighting or bossWaitingForSpawn or bossPlayerJoined or bossEventPhase == "Active" then
         return true
@@ -620,6 +623,8 @@ local function pauseAutomationsForEvent(eventName)
     }
     EventMemory.SavedWorld = Config.SelectedTrainWorld
     EventMemory.SavedZone = Config.SelectedTrainZone
+    EventMemory.SavedProgWorld = Config.SelectedProgWorld
+    EventMemory.SavedProgStage = Config.SelectedProgStage
     EventMemory.SavedCFrame = hrp and hrp.CFrame
     
     print(string.format("[Event Memory] %s ativo! Pausando outras funções: AutoTrain=%s, AutoWin=%s, AutoEndless=%s, AutoRebirth=%s",
@@ -675,6 +680,8 @@ local function resumeAutomationsAfterEvent(eventName)
             if Config.TitleTrainEnabled and equipTitle then equipTitle(Config.TitleTrain) end
         end
         if saved.AutoWin then
+            if EventMemory.SavedProgWorld then Config.SelectedProgWorld = EventMemory.SavedProgWorld end
+            if EventMemory.SavedProgStage then Config.SelectedProgStage = EventMemory.SavedProgStage end
             Config.AutoWin = true
             if WinToggle and WinToggle.Set then WinToggle.Set(true, true) end
             if Config.TitleWinEnabled and equipTitle then equipTitle(Config.TitleWin) end
@@ -691,18 +698,20 @@ local function resumeAutomationsAfterEvent(eventName)
             Config.AutoRebirth = saved.AutoRebirth
         end
         
-        -- Retorna o personagem para onde estava antes do evento
+        -- Retorna o personagem para a atividade anterior (Auto Train, Auto Win, Auto Endless)
         task.spawn(function()
-            task.wait(1.5)
+            task.wait(1.0)
             local char, hrp = waitForCharacterAlive(6)
-            if hrp and savedCF and Config.EventReturnMemory then
-                if savedWorld and savedWorld ~= "auto" and RemoteRequestWorldChange then
+            if hrp and savedCF and (Config.EventReturnMemory or saved.AutoTrain or saved.AutoWin or saved.AutoEndless) then
+                if saved.AutoTrain and savedWorld and savedWorld ~= "auto" and RemoteRequestWorldChange then
                     local wNum = tonumber(string.match(tostring(savedWorld), "%d+"))
                     if wNum then RemoteRequestWorldChange:InvokeServer(wNum) end
-                    task.wait(1.2)
+                    task.wait(1.0)
                 end
                 local curChar, curHrp = waitForCharacterAlive(4)
-                if curHrp then curHrp.CFrame = savedCF end
+                if curHrp and saved.AutoTrain then
+                    curHrp.CFrame = savedCF
+                end
             end
         end)
     end
@@ -5809,12 +5818,14 @@ end)
 
 createToggle(EventosTab, "Auto Entrar no Boss (Prioridade Total)", Config.AutoEnterBoss, function(val)
     Config.AutoEnterBoss = val
-    if not val then
+    if val then
+        if checkAndAcceptBossInvite then checkAndAcceptBossInvite() end
+    else
         bossDiedInCurrentEvent = false
     end
 end)
 
-createToggle(EventosTab, "Auto Atacar Boss (Voo em Círculo)", Config.BossAutoAttack, function(val)
+createToggle(EventosTab, "Auto Atacar Boss (Teleporte Direto)", Config.BossAutoAttack, function(val)
     Config.BossAutoAttack = val
 end)
 
@@ -5882,44 +5893,133 @@ local function teleportToBossArena()
     end)
 end
 
-local function scheduleEndlessReturn(reason, delaySeconds)
-    if isReturningToEndless then return end
-    isReturningToEndless = true
+local isHandlingBossFinish = false
+
+finishBossAndResetCharacter = function(reason)
+    if isHandlingBossFinish then return end
+    if not (isBossFighting or wasFightingBoss or bossPlayerJoined) and not EventMemory.IsActive then return end
     
-    local waitTime = delaySeconds or 15
-    print(string.format("[Auto Boss] %s! Aguardando atraso de %ds para voltar ao CO-OP Sem Fim...", tostring(reason), waitTime))
+    isHandlingBossFinish = true
+    print(string.format("[Auto Boss] %s! Finalizando modo Boss e preparando reset...", tostring(reason or "Boss finalizado")))
     
-    spawnThread(function()
-        for remaining = waitTime, 1, -1 do
-            if not isReturningToEndless then break end
-            if EventStatusCard then
-                EventStatusCard.Update(string.format("Boss finalizado!\nRetornando ao CO-OP em %ds...", remaining), Color3.fromRGB(100, 255, 100))
-            end
-            task.wait(1)
-        end
-        
-        isBossFighting = false
-        wasFightingBoss = false
-        bossWaitingForSpawn = false
-        bossPlayerJoined = false
-        bossEventPhase = "Idle"
-        bossDiedInCurrentEvent = false
-        bossStartTime = 0
-        isReturningToEndless = false
-        EventMemory.HasResetForBoss = false
-        restoreActivity()
-    end)
+    if EventStatusCard then
+        EventStatusCard.Update("Boss finalizado! Resetando personagem...", Color3.fromRGB(255, 200, 50))
+    end
+    
+    isBossFighting = false
+    wasFightingBoss = false
+    bossWaitingForSpawn = false
+    bossPlayerJoined = false
+    bossEventPhase = "Idle"
+    bossDiedInCurrentEvent = false
+    bossStartTime = 0
+    isReturningToEndless = false
+    EventMemory.HasResetForBoss = false
+    
+    -- Aguarda 1.5s para garantir que todas as recompensas/drops do Boss foram coletadas
+    task.wait(1.5)
+    
+    -- 1. Reseta o personagem imediatamente
+    print("[Auto Boss] Dando reset no personagem após o fim do Boss...")
+    resetCharacterAndRecover()
+    
+    -- 2. Restaura a tarefa anterior após o reset
+    print("[Auto Boss] Restaurando tarefa anterior após o reset...")
+    resumeAutomationsAfterEvent("Boss")
+    
+    isHandlingBossFinish = false
 end
 
--- Monitor de Morte Durante o Boss: se o jogador morrer no Boss, reativa o Auto Endless com atraso
+checkAndAcceptBossInvite = function()
+    if not Config.AutoEnterBoss then return end
+    if isRaidActive() and Config.AutoEnterRaid then return end
+    if isBossFighting then return end
+    
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+    local bfi = top and top:FindFirstChild("BossFightInvite")
+    
+    if bfi and bfi.Visible then
+        print("[Auto Boss] Convite 'LUTE CONTRA BOSS' (BossFightInvite) detectado na tela! Aceitando...")
+        recordActivity()
+        
+        -- Dispara o Remote para o servidor
+        if RemoteBossEventResponse then
+            RemoteBossEventResponse:FireServer(true)
+        end
+        
+        -- Clica no botão 'Vá!' / 'JoinButton'
+        local joinBtn = bfi:FindFirstChild("JoinButton") or bfi:FindFirstChildWhichIsA("ImageButton", true) or bfi:FindFirstChildWhichIsA("GuiButton", true)
+        if joinBtn then
+            pcall(function()
+                if firesignal then
+                    firesignal(joinBtn.Activated)
+                    firesignal(joinBtn.MouseButton1Click)
+                elseif firebutton1click then
+                    firebutton1click(joinBtn)
+                end
+            end)
+        end
+        
+        for _, b in ipairs(bfi:GetDescendants()) do
+            if b:IsA("GuiButton") and b ~= joinBtn then
+                pcall(function()
+                    if firesignal then firesignal(b.Activated) firesignal(b.MouseButton1Click)
+                    elseif firebutton1click then firebutton1click(b) end
+                end)
+            end
+        end
+        
+        isBossFighting = true
+        wasFightingBoss = true
+        bossStartTime = os.clock()
+        bossWaitingForSpawn = true
+        bossWaitStartTime = os.clock()
+        
+        if Config.TitleBossEnabled and equipTitle then
+            equipTitle(Config.TitleBoss)
+        end
+        
+        if EventStatusCard then
+            EventStatusCard.Update("Entrando no Boss de Arena...", Color3.fromRGB(0, 255, 120))
+        end
+        
+        task.defer(teleportToBossArena)
+    end
+end
+
+-- Listener do evento de interface para aceitar o convite assim que aparecer na tela
+pcall(function()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+    local bfi = top and top:FindFirstChild("BossFightInvite")
+    if bfi then
+        local visConn = bfi:GetPropertyChangedSignal("Visible"):Connect(function()
+            if bfi.Visible then checkAndAcceptBossInvite() end
+        end)
+        table.insert(ActiveConnections, visConn)
+        if bfi.Visible then checkAndAcceptBossInvite() end
+    end
+end)
+
+-- Monitor de convite contínuo (pega o popup instantaneamente assim que abre)
+spawnThread(function()
+    while true do
+        pcall(checkAndAcceptBossInvite)
+        task.wait(0.2)
+    end
+end)
+
+-- Monitor de Morte Durante o Boss: se o jogador morrer no Boss, reseta e restaura tarefa anterior
 local function registerBossDeathTracker(char)
     if not char then return end
     local hum = char:WaitForChild("Humanoid", 5)
     if hum then
         local diedConn = hum.Died:Connect(function()
             if isBossFighting or wasFightingBoss then
-                bossDiedInCurrentEvent = true
-                scheduleEndlessReturn("Morte do personagem no Boss", 15)
+                task.spawn(function()
+                    finishBossAndResetCharacter("Morte do personagem no Boss")
+                end)
             end
         end)
         table.insert(ActiveConnections, diedConn)
@@ -5939,41 +6039,10 @@ if RemoteBossEventPrompt then
         bossWaitStartTime = os.clock()
         bossStartTime = os.clock()
         if bossDiedInCurrentEvent then return end
-        if Config.AutoEnterBoss and RemoteBossEventResponse then
-            recordActivity()
-            if not EventMemory.HasResetForBoss then
-                EventMemory.HasResetForBoss = true
-                task.spawn(function()
-                    performResetAndAccept("Boss", function()
-                        isBossFighting = true
-                        if Config.TitleBossEnabled and equipTitle then equipTitle(Config.TitleBoss) end
-                        if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
-                        
-                        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-                        local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
-                        local bfi = top and top:FindFirstChild("BossFightInvite")
-                        if bfi and bfi.Visible then
-                            for _, b in ipairs(bfi:GetDescendants()) do
-                                if b:IsA("GuiButton") and (b.Name:lower():find("join") or b.Name:lower():find("accept") or b.Name:lower():find("btn")) then
-                                    pcall(function()
-                                        if firesignal then
-                                            firesignal(b.Activated)
-                                            firesignal(b.MouseButton1Click)
-                                        elseif firebutton1click then
-                                            firebutton1click(b)
-                                        end
-                                    end)
-                                end
-                            end
-                        end
-                        task.defer(teleportToBossArena)
-                    end)
-                end)
-            else
-                isBossFighting = true
-                if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
-                task.defer(teleportToBossArena)
-            end
+        if Config.AutoEnterBoss then
+            checkAndAcceptBossInvite()
+            if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
+            task.defer(teleportToBossArena)
         end
     end)
     table.insert(ActiveConnections, bpConn)
@@ -5988,7 +6057,7 @@ if RemoteBossEventCountdown then
             bossDiedInCurrentEvent = false -- Reset para novo ciclo de Boss
             EventMemory.HasResetForBoss = false
         end
-        if EventStatusCard and not isReturningToEndless then
+        if EventStatusCard and not isHandlingBossFinish then
             EventStatusCard.Update(string.format("Boss iniciando em: %ds\nPróxima Raid em: %s", secondsLeft or 0, select(2, getEventTimersInfo())), Color3.fromRGB(255, 255, 255))
         end
         if secondsLeft and secondsLeft <= 5 and secondsLeft > 0 then
@@ -5996,23 +6065,8 @@ if RemoteBossEventCountdown then
             bossWaitStartTime = os.clock()
             bossStartTime = os.clock()
             if bossDiedInCurrentEvent then return end
-            if Config.AutoEnterBoss and RemoteBossEventResponse then
-                recordActivity()
-                if not EventMemory.HasResetForBoss then
-                    EventMemory.HasResetForBoss = true
-                    task.spawn(function()
-                        performResetAndAccept("Boss", function()
-                            isBossFighting = true
-                            if Config.TitleBossEnabled and equipTitle then equipTitle(Config.TitleBoss) end
-                            if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
-                            task.defer(teleportToBossArena)
-                        end)
-                    end)
-                else
-                    isBossFighting = true
-                    RemoteBossEventResponse:FireServer(true)
-                    task.defer(teleportToBossArena)
-                end
+            if Config.AutoEnterBoss then
+                checkAndAcceptBossInvite()
             end
         end
     end)
@@ -6052,8 +6106,10 @@ if RemoteBossEventUpdate then
                 task.defer(teleportToBossArena)
             end
         elseif phase == "Idle" then
-            if isBossFighting or wasFightingBoss then
-                scheduleEndlessReturn("Evento do Boss encerrado (Idle)", 15)
+            if isBossFighting or wasFightingBoss or EventMemory.IsActive then
+                task.spawn(function()
+                    finishBossAndResetCharacter("Evento do Boss encerrado (Idle)")
+                end)
             end
         end
     end)
@@ -6062,8 +6118,9 @@ end
 
 if RemoteBossEventReward then
     local brConn = RemoteBossEventReward.OnClientEvent:Connect(function(...)
-        bossDiedInCurrentEvent = false
-        scheduleEndlessReturn("Recompensa do Boss recebida (Boss derrotado)", 15)
+        task.spawn(function()
+            finishBossAndResetCharacter("Recompensa do Boss recebida (Boss derrotado)")
+        end)
     end)
     table.insert(ActiveConnections, brConn)
 end
@@ -6113,16 +6170,17 @@ spawnThread(function()
                 print("[Auto Boss] Boss detectado! Entrando em combate com teleporte direto.")
             end
             
-            -- Checagem de morte direta do Humanoid: Se morrer no Boss, reativa o Auto Endless com atraso de 15 segundos
+            -- Checagem de morte direta do Humanoid: Se morrer no Boss, reseta e restaura
             if hum and hum.Health <= 0 then
                 if isBossFighting or wasFightingBoss then
-                    bossDiedInCurrentEvent = true
-                    scheduleEndlessReturn("Morte do personagem detectada no Boss", 15)
+                    task.spawn(function()
+                        finishBossAndResetCharacter("Morte do personagem detectada no Boss")
+                    end)
                     return
                 end
             end
             
-            local isBossCombatActive = (isBhbVisible or hasLiveBoss or isBossFighting) and not bossDiedInCurrentEvent and not isReturningToEndless
+            local isBossCombatActive = (isBhbVisible or hasLiveBoss or isBossFighting) and not bossDiedInCurrentEvent and not isHandlingBossFinish
             
             if isBossCombatActive then
                 -- GARANTE QUE AUTO ENDLESS É DESLIGADO ASSIM QUE O BOSS INICIAR
@@ -6211,16 +6269,18 @@ spawnThread(function()
                     end
                 end
                 
-                -- Se estava enfrentando o boss e ele sumiu/morreu: aguarda 15 segundos para retornar ao Endless!
-                if wasFightingBoss and not isReturningToEndless then
+                -- Se estava enfrentando o boss e ele sumiu/morreu:
+                if wasFightingBoss and not isHandlingBossFinish then
                     bossMissingFrames = bossMissingFrames + 1
                     if bossMissingFrames >= 8 then
-                        bossDiedInCurrentEvent = false
-                        scheduleEndlessReturn("Boss derrotado", 15)
+                        task.spawn(function()
+                            finishBossAndResetCharacter("Boss derrotado")
+                        end)
                     end
-                elseif isBossFighting and not isBhbVisible and not isReturningToEndless then
-                    bossDiedInCurrentEvent = false
-                    scheduleEndlessReturn("Evento do Boss encerrado", 15)
+                elseif isBossFighting and not isBhbVisible and not isHandlingBossFinish then
+                    task.spawn(function()
+                        finishBossAndResetCharacter("Evento do Boss encerrado")
+                    end)
                 end
             end
         end)
