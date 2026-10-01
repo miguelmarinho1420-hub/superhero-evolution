@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790879975
+local SCRIPT_VERSION_TIMESTAMP = 1790880437
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -560,27 +560,17 @@ local function getActiveBossModel()
 end
 
 local function isBossActive()
-    -- PRIORIDADE ABSOLUTA: Se a Raid estiver ativa e o Auto Raid configurado, ignora o Boss!
-    if isRaidActive() and Config.AutoEnterRaid then
-        return false
-    end
+    -- Se o ataque automático do Boss não estiver ativado, o Boss nunca pausa outras funções
+    if not Config.BossAutoAttack then return false end
+    if isRaidActive() and Config.AutoEnterRaid then return false end
     if isHandlingBossFinish then return false end
     if bossDiedInCurrentEvent then return false end
-    if isBossFighting or bossWaitingForSpawn or bossPlayerJoined or bossEventPhase == "Active" then
-        return true
-    end
+    if isBossFighting then return true end
 
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
     local bhb = top and top:FindFirstChild("BossHealthBar")
-    local ebm = top and top:FindFirstChild("EventBossMode")
-    local bfi = top and top:FindFirstChild("BossFightInvite")
-    local isBarActive = (bhb and bhb.Visible == true) or (ebm and ebm.Visible == true) or (bfi and bfi.Visible == true)
-
-    if isBarActive then return true end
-
-    local bModel, bHum = getActiveBossModel()
-    return (bModel ~= nil and bHum ~= nil and bHum.Health > 0)
+    return (bhb and bhb.Visible == true)
 end
 
 -- ══════════════════════════════════════════════════════════════
@@ -5920,59 +5910,28 @@ end
 local isHandlingBossFinish = false
 
 finishBossAndResetCharacter = function(reason)
-    if isHandlingBossFinish then return end
-    if not (isBossFighting or wasFightingBoss or bossPlayerJoined) and not EventMemory.IsActive then return end
-    
-    isHandlingBossFinish = true
-    print(string.format("[Auto Boss] %s! Finalizando modo Boss e preparando reset...", tostring(reason or "Boss finalizado")))
-    
-    if EventStatusCard then
-        EventStatusCard.Update("Boss finalizado! Resetando personagem...", Color3.fromRGB(255, 200, 50))
-    end
-    
+    -- Desativado: Auto Boss apenas aceita o convite e não executa mais nenhuma função (sem reset)
+    isHandlingBossFinish = false
     isBossFighting = false
     wasFightingBoss = false
-    bossWaitingForSpawn = false
-    bossPlayerJoined = false
-    bossEventPhase = "Idle"
-    bossDiedInCurrentEvent = false
-    bossStartTime = 0
-    isReturningToEndless = false
-    EventMemory.HasResetForBoss = false
-    
-    -- Aguarda 1.5s para garantir que todas as recompensas/drops do Boss foram coletadas
-    task.wait(1.5)
-    
-    -- 1. Reseta o personagem imediatamente
-    print("[Auto Boss] Dando reset no personagem após o fim do Boss...")
-    resetCharacterAndRecover()
-    
-    -- 2. Restaura a tarefa anterior após o reset
-    print("[Auto Boss] Restaurando tarefa anterior após o reset...")
-    resumeAutomationsAfterEvent("Boss")
-    
-    isHandlingBossFinish = false
 end
 
 checkAndAcceptBossInvite = function()
     if not Config.AutoEnterBoss then return end
-    if isRaidActive() and Config.AutoEnterRaid then return end
-    if isBossFighting then return end
     
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
     local bfi = top and top:FindFirstChild("BossFightInvite")
     
     if bfi and bfi.Visible then
-        print("[Auto Boss] Convite 'LUTE CONTRA BOSS' (BossFightInvite) detectado na tela! Aceitando...")
-        recordActivity()
+        print("[Auto Boss] Convite de evento do Boss (BossFightInvite) detectado na tela! Aceitando...")
         
-        -- Dispara o Remote para o servidor
+        -- Dispara o Remote para o servidor aceitar o convite
         if RemoteBossEventResponse then
             RemoteBossEventResponse:FireServer(true)
         end
         
-        -- Clica no botão 'Vá!' / 'JoinButton'
+        -- Clica no botão de aceitar ('Vá!' / 'JoinButton')
         local joinBtn = bfi:FindFirstChild("JoinButton") or bfi:FindFirstChildWhichIsA("ImageButton", true) or bfi:FindFirstChildWhichIsA("GuiButton", true)
         if joinBtn then
             pcall(function()
@@ -5993,22 +5952,6 @@ checkAndAcceptBossInvite = function()
                 end)
             end
         end
-        
-        isBossFighting = true
-        wasFightingBoss = true
-        bossStartTime = os.clock()
-        bossWaitingForSpawn = true
-        bossWaitStartTime = os.clock()
-        
-        if Config.TitleBossEnabled and equipTitle then
-            equipTitle(Config.TitleBoss)
-        end
-        
-        if EventStatusCard then
-            EventStatusCard.Update("Entrando no Boss de Arena...", Color3.fromRGB(0, 255, 120))
-        end
-        
-        task.defer(teleportToBossArena)
     end
 end
 
@@ -6026,47 +5969,21 @@ pcall(function()
     end
 end)
 
--- Monitor de convite contínuo (pega o popup instantaneamente assim que abre)
+-- Monitor de convite contínuo (aceita instantaneamente assim que abre)
 spawnThread(function()
     while true do
-        pcall(checkAndAcceptBossInvite)
+        if Config.AutoEnterBoss then
+            pcall(checkAndAcceptBossInvite)
+        end
         task.wait(0.2)
     end
 end)
 
--- Monitor de Morte Durante o Boss: se o jogador morrer no Boss, reseta e restaura tarefa anterior
-local function registerBossDeathTracker(char)
-    if not char then return end
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then
-        local diedConn = hum.Died:Connect(function()
-            if isBossFighting or wasFightingBoss then
-                task.spawn(function()
-                    finishBossAndResetCharacter("Morte do personagem no Boss")
-                end)
-            end
-        end)
-        table.insert(ActiveConnections, diedConn)
-    end
-end
-
-if LocalPlayer.Character then registerBossDeathTracker(LocalPlayer.Character) end
-table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(registerBossDeathTracker))
-
 if RemoteBossEventPrompt then
     local bpConn = RemoteBossEventPrompt.OnClientEvent:Connect(function(...)
-        if isRaidActive() and Config.AutoEnterRaid then
-            print("[Auto Boss] Raid ativa detectada! Priorizando Raid sobre prompt do Boss.")
-            return
-        end
-        bossWaitingForSpawn = true
-        bossWaitStartTime = os.clock()
-        bossStartTime = os.clock()
-        if bossDiedInCurrentEvent then return end
         if Config.AutoEnterBoss then
             checkAndAcceptBossInvite()
             if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
-            task.defer(teleportToBossArena)
         end
     end)
     table.insert(ActiveConnections, bpConn)
@@ -6074,24 +5991,9 @@ end
 
 if RemoteBossEventCountdown then
     local bcConn = RemoteBossEventCountdown.OnClientEvent:Connect(function(secondsLeft)
-        if isRaidActive() and Config.AutoEnterRaid then
-            return
-        end
-        if secondsLeft and secondsLeft > 15 then
-            bossDiedInCurrentEvent = false -- Reset para novo ciclo de Boss
-            EventMemory.HasResetForBoss = false
-        end
-        if EventStatusCard and not isHandlingBossFinish then
-            EventStatusCard.Update(string.format("Boss iniciando em: %ds\nPróxima Raid em: %s", secondsLeft or 0, select(2, getEventTimersInfo())), Color3.fromRGB(255, 255, 255))
-        end
-        if secondsLeft and secondsLeft <= 5 and secondsLeft > 0 then
-            bossWaitingForSpawn = true
-            bossWaitStartTime = os.clock()
-            bossStartTime = os.clock()
-            if bossDiedInCurrentEvent then return end
-            if Config.AutoEnterBoss then
-                checkAndAcceptBossInvite()
-            end
+        if secondsLeft and secondsLeft <= 5 and secondsLeft > 0 and Config.AutoEnterBoss then
+            checkAndAcceptBossInvite()
+            if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
         end
     end)
     table.insert(ActiveConnections, bcConn)
@@ -6099,54 +6001,19 @@ end
 
 if RemoteBossEventUpdate then
     local buConn = RemoteBossEventUpdate.OnClientEvent:Connect(function(arg1, ...)
-        if isRaidActive() and Config.AutoEnterRaid then
-            return
-        end
         local phase = nil
-        local youJoined = nil
         if type(arg1) == "table" then
             phase = arg1.phase
-            youJoined = arg1.youJoined
         elseif type(arg1) == "string" then
             phase = arg1
         end
-
         if phase then bossEventPhase = phase end
-        if youJoined ~= nil then
-            bossPlayerJoined = (youJoined == true)
-            if youJoined == true and not bossDiedInCurrentEvent and Config.AutoEnterBoss then
-                isBossFighting = true
-                bossStartTime = os.clock()
-                recordActivity()
-                task.defer(teleportToBossArena)
-            end
-        end
-
-        if phase == "Active" and not bossDiedInCurrentEvent then
-            bossStartTime = os.clock()
-            if (bossPlayerJoined or Config.AutoEnterBoss) and Config.AutoEnterBoss then
-                isBossFighting = true
-                recordActivity()
-                task.defer(teleportToBossArena)
-            end
-        elseif phase == "Idle" then
-            if isBossFighting or wasFightingBoss or EventMemory.IsActive then
-                task.spawn(function()
-                    finishBossAndResetCharacter("Evento do Boss encerrado (Idle)")
-                end)
-            end
+        if phase == "Active" and Config.AutoEnterBoss then
+            checkAndAcceptBossInvite()
+            if RemoteBossEventResponse then RemoteBossEventResponse:FireServer(true) end
         end
     end)
     table.insert(ActiveConnections, buConn)
-end
-
-if RemoteBossEventReward then
-    local brConn = RemoteBossEventReward.OnClientEvent:Connect(function(...)
-        task.spawn(function()
-            finishBossAndResetCharacter("Recompensa do Boss recebida (Boss derrotado)")
-        end)
-    end)
-    table.insert(ActiveConnections, brConn)
 end
 
 -- Thread de Combate Boss de Arena (Thanos / Doom / Tung Sahur / Kong)
@@ -6157,7 +6024,7 @@ spawnThread(function()
     
     while true do
         pcall(function()
-            if not Config.AutoEnterBoss and not Config.BossAutoAttack then
+            if not Config.BossAutoAttack then
                 if isBossFighting or wasFightingBoss then
                     isBossFighting = false
                     wasFightingBoss = false
@@ -6179,6 +6046,10 @@ spawnThread(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not char or not hrp or not hum or hum.Health <= 0 then
+                task.wait(0.5)
+                return
+            end
             
             -- Detectar se a barra de vida do Boss de Arena abriu na tela
             local pgui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -6191,27 +6062,11 @@ spawnThread(function()
             
             if (isBhbVisible or hasLiveBoss) and bossStartTime == 0 then
                 bossStartTime = now
-                print("[Auto Boss] Boss detectado! Entrando em combate com teleporte direto.")
-            end
-            
-            -- Checagem de morte direta do Humanoid: Se morrer no Boss, reseta e restaura
-            if hum and hum.Health <= 0 then
-                if isBossFighting or wasFightingBoss then
-                    task.spawn(function()
-                        finishBossAndResetCharacter("Morte do personagem detectada no Boss")
-                    end)
-                    return
-                end
             end
             
             local isBossCombatActive = (isBhbVisible or hasLiveBoss or isBossFighting) and not bossDiedInCurrentEvent and not isHandlingBossFinish
             
             if isBossCombatActive then
-                -- GARANTE QUE AUTO ENDLESS É DESLIGADO ASSIM QUE O BOSS INICIAR
-                if Config.AutoEndless then
-                    recordActivity()
-                end
-                
                 isBossFighting = true
                 if not wasFightingBoss then
                     wasFightingBoss = true
@@ -6762,8 +6617,8 @@ local function handleUniversalCharacterRespawn(newChar)
             return
         end
         
-        -- 2. Se o Boss de Arena estiver ativo e o jogador estiver no Auto Boss:
-        if isBossActive() and Config.AutoEnterBoss and not bossDiedInCurrentEvent then
+        -- 2. Se o Boss de Arena estiver ativo e o ataque ao Boss estiver ligado:
+        if isBossActive() and Config.BossAutoAttack and not bossDiedInCurrentEvent then
             print("[Respawn Recovery] Boss de Arena ativo após renascer! Retornando para a Arena...")
             teleportToBossArena()
             return
