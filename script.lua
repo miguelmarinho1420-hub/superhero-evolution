@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790894106
+local SCRIPT_VERSION_TIMESTAMP = 1790894381
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -115,7 +115,8 @@ local Config = {
     EndlessWorld = "current",
     AutoHopBlocked = false,
     
-    -- Utilitários
+    -- Utilitários & Pop-ups
+    AutoClosePopups = true, -- Auto fechar pop-ups de Robux / Reanimação e telas
     AntiAfk = true,
 }
 
@@ -250,6 +251,194 @@ table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
         end)
     end
 end))
+
+-- ══════════════════════════════════════════════════════════════
+-- MOTOR DE AUTO FECHAR POP-UPS (ROBUX, REANIMAÇÃO E TELAS INVASIVAS)
+-- ══════════════════════════════════════════════════════════════
+local function closeRobloxPurchasePrompt()
+    pcall(function()
+        local coreGui = game:GetService("CoreGui")
+        local vim = game:GetService("VirtualInputManager")
+        
+        local candidates = {}
+        local ppa = coreGui:FindFirstChild("PurchasePromptApp")
+        if ppa then table.insert(candidates, ppa) end
+        local pp = coreGui:FindFirstChild("PurchasePrompt")
+        if pp then table.insert(candidates, pp) end
+        local rbxGui = coreGui:FindFirstChild("RobloxGui")
+        if rbxGui then
+            local rbxPP = rbxGui:FindFirstChild("PurchasePrompt")
+            if rbxPP then table.insert(candidates, rbxPP) end
+        end
+        for _, ch in ipairs(coreGui:GetChildren()) do
+            local chName = ch.Name:lower()
+            if (chName:find("purchase") or chName:find("prompt")) and ch ~= ppa and ch ~= pp then
+                table.insert(candidates, ch)
+            end
+        end
+        
+        for _, container in ipairs(candidates) do
+            for _, desc in ipairs(container:GetDescendants()) do
+                if desc:IsA("GuiButton") and desc.Visible and desc.AbsoluteSize.X > 0 and desc.AbsoluteSize.Y > 0 then
+                    local name = desc.Name:lower()
+                    local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
+                    
+                    -- NUNCA clica no botão de confirmação de compra de Robux!
+                    local isConfirmBuy = name:find("buy") or name:find("purchase") or name:find("confirm")
+                        or text:find("comprar") or text:find("buy") or text:find("purchase")
+                        
+                    if not isConfirmBuy then
+                        local isClose = false
+                        
+                        -- 1. Nome ou texto típico de fechar / cancelar / 'X'
+                        if name:find("close") or name:find("cancel") or name:find("dismiss") or name == "x" 
+                            or text == "x" or text == "✕" or text == "×" or text:find("cancel") or text:find("fechar") then
+                            isClose = true
+                        end
+                        
+                        -- 2. ImageButton com ícone de fechar / cross
+                        if not isClose and desc:IsA("ImageButton") then
+                            local img = desc.Image:lower()
+                            if img:find("close") or img:find("cancel") or img:find("cross") or img:find("x") then
+                                isClose = true
+                            end
+                        end
+                        
+                        -- 3. Botão no cabeçalho superior do modal (exatamente onde fica o 'X' na janela)
+                        if not isClose then
+                            local parentFrame = desc.Parent
+                            if parentFrame and parentFrame:IsA("GuiObject") then
+                                local relY = math.abs(desc.AbsolutePosition.Y - parentFrame.AbsolutePosition.Y)
+                                if relY <= 70 and desc.AbsoluteSize.X <= 60 and desc.AbsoluteSize.Y <= 60 then
+                                    isClose = true
+                                end
+                            end
+                        end
+                        
+                        if isClose then
+                            pcall(function()
+                                if firesignal then
+                                    firesignal(desc.Activated)
+                                    firesignal(desc.MouseButton1Click)
+                                end
+                            end)
+                            pcall(function()
+                                local center = desc.AbsolutePosition + (desc.AbsoluteSize / 2)
+                                if vim then
+                                    vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
+                                    task.wait(0.01)
+                                    vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
+                                elseif VirtualUser then
+                                    VirtualUser:CaptureController()
+                                    VirtualUser:ClickButton1(center)
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function closeGamePopups()
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pgui then return end
+        
+        -- 1. Fecha Popup de Reanimação (Revive) nativo do jogo
+        local screenGui = pgui:FindFirstChild("ScreenGui")
+        if screenGui then
+            local revive = screenGui:FindFirstChild("Revive")
+            if revive and revive.Visible then
+                local cancelBtn = revive:FindFirstChild("Cancel", true) 
+                    or revive:FindFirstChild("No", true) 
+                    or revive:FindFirstChild("Close", true)
+                if cancelBtn and cancelBtn:IsA("GuiButton") then
+                    pcall(function()
+                        if firesignal then
+                            firesignal(cancelBtn.Activated)
+                            firesignal(cancelBtn.MouseButton1Click)
+                        end
+                    end)
+                end
+                revive.Visible = false
+            end
+        end
+        
+        -- 2. Fecha pop-ups de ofertas promocionais ou telas invasivas
+        for _, gui in ipairs(pgui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Enabled and not gui.Name:match("^SuperHeroEvolutionHub") then
+                for _, desc in ipairs(gui:GetDescendants()) do
+                    if desc:IsA("Frame") and desc.Visible and desc.AbsoluteSize.X > 150 and desc.AbsoluteSize.Y > 150 then
+                        local fName = desc.Name:lower()
+                        if fName:find("offer") or fName:find("popup") or fName:find("prompt") 
+                            or fName:find("special") or fName:find("pack") or fName:find("reward") then
+                            for _, child in ipairs(desc:GetChildren()) do
+                                if child:IsA("GuiButton") and child.Visible then
+                                    local bName = child.Name:lower()
+                                    local bText = (child:IsA("TextButton") and child.Text:lower()) or ""
+                                    if bName:find("close") or bName:find("cancel") or bName:find("exit") or bName == "x"
+                                        or bText == "x" or bText == "✕" or bText == "×" or bText:find("fechar") then
+                                        pcall(function()
+                                            if firesignal then
+                                                firesignal(child.Activated)
+                                                firesignal(child.MouseButton1Click)
+                                            end
+                                        end)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function runAutoClosePopups()
+    if not Config.AutoClosePopups then return end
+    closeRobloxPurchasePrompt()
+    closeGamePopups()
+end
+
+-- Thread contínua para fechar pop-ups rapidamente
+spawnThread(function()
+    while true do
+        if Config.AutoClosePopups then
+            runAutoClosePopups()
+        end
+        task.wait(0.2)
+    end
+end)
+
+-- Gatilhos por evento para fechamento instantâneo
+pcall(function()
+    local coreGui = game:GetService("CoreGui")
+    local conn = coreGui.DescendantAdded:Connect(function(desc)
+        if Config.AutoClosePopups then
+            local p = desc.Parent
+            local pName = (p and p.Name:lower()) or ""
+            if pName:find("purchase") or pName:find("prompt") then
+                task.defer(runAutoClosePopups)
+            end
+        end
+    end)
+    table.insert(ActiveConnections, conn)
+end)
+
+pcall(function()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if pgui then
+        local conn = pgui.DescendantAdded:Connect(function(desc)
+            if Config.AutoClosePopups and (desc.Name == "Revive" or desc.Name:lower():find("offer")) then
+                task.defer(runAutoClosePopups)
+            end
+        end)
+        table.insert(ActiveConnections, conn)
+    end
+end)
 
 -- Cache inteligente de mapa para eliminar quedas de FPS
 local cachedCurrentMap = nil
@@ -1406,6 +1595,7 @@ spawnThread(function()
                     end
                     reviveGui.Visible = false
                 end
+                runAutoClosePopups()
                 
                 if isInsideEndless() then
                     wasInsideEndless = true
@@ -2626,11 +2816,19 @@ createToggle(EndlessTab, "Auto Hop se Bloqueado (+1 min)", Config.AutoHopBlocked
     Config.AutoHopBlocked = val
 end)
 
+createToggle(EndlessTab, "Auto Fechar Reanimação (11 Robux)", Config.AutoClosePopups, function(val)
+    Config.AutoClosePopups = val
+end)
+
 -- ── ABA 5: CONFIGURAÇÕES & SAÍDA ──────────────────────────────
 createSectionHeader(ConfigTab, "⚙️ CONFIGURAÇÕES GERAIS")
 
 createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
     Config.AntiAfk = val
+end)
+
+createToggle(ConfigTab, "Auto Fechar Pop-ups (Robux & Telas)", Config.AutoClosePopups, function(val)
+    Config.AutoClosePopups = val
 end)
 
 createInfoCard(ConfigTab, "⌨️ Tecla de Atalho", "Pressione 'K' para Minimizar / Abrir", Themes.TextDim)
