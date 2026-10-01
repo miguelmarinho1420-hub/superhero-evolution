@@ -23,7 +23,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790878496
+local SCRIPT_VERSION_TIMESTAMP = 1790879688
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -128,7 +128,7 @@ local Config = {
     SelectedTrainWorld = "auto",
     TrainZoneFilter = "free",
     SelectedTrainZone = "auto",
-    TrainPositioning = "distance",
+    TrainPositioning = "melee",
     AutoTrain = false,
     AutoRebirth = false,
     RebirthDelay = 1.5,
@@ -1801,9 +1801,8 @@ local WorldsTeleportList = {
 }
 
 local TrainPositioningOptions = {
-    {Id = "distance", Name = "À Distância Segura (7.5 studs)"},
-    {Id = "medium", Name = "Média Distância (5.5 studs)"},
-    {Id = "center", Name = "Centro da Zona"}
+    {Id = "melee", Name = "🥊 Corpo a Corpo (Colado no Saco)"},
+    {Id = "distance", Name = "🏹 A Distância (Borda da Área/Pad)"}
 }
 
 local TrainingWorldsList = {
@@ -3468,16 +3467,36 @@ local function createInfoCard(parent, title, statusText, statusColor, forceColor
 end
 
 -- ══════════════════════════════════════════════════════════════
---  1. ABA TREINO (CLIQUE & TREINO INTELIGENTE - MUNDOS 1 A 8) [FOTO 1]
+--  1. ABA CLIQUE & REBIRTH [SEÇÃO CLIQUE]
 -- ══════════════════════════════════════════════════════════════
-createSectionHeader(TreinoTab, "⚡ CLIQUE & TREINO INTELIGENTE")
+createSectionHeader(TreinoTab, "⚡ CLIQUE & REBIRTH")
+
+MainStatsCard = createInfoCard(TreinoTab, "📊 Estatísticas em Tempo Real", "Clicks: 0 | Rebirths: 0", Themes.Accent2)
 
 createToggle(TreinoTab, "Auto Click (Fast Click)", Config.FastClick, function(val)
     Config.FastClick = val
 end)
 
-createSlider(TreinoTab, "Velocidade de Cliques por Segundo", 1, 50, Config.ClickCPS, "", false, function(val)
+createSlider(TreinoTab, "Velocidade de Cliques por Segundo (CPS)", 1, 50, Config.ClickCPS, "", false, function(val)
     Config.ClickCPS = val
+end)
+
+createToggle(TreinoTab, "Auto Rebirth", Config.AutoRebirth, function(val)
+    Config.AutoRebirth = val
+end)
+
+createSlider(TreinoTab, "Intervalo de Rebirth (segundos)", 0.5, 5, Config.RebirthDelay, "s", false, function(val)
+    Config.RebirthDelay = val
+end)
+
+-- ══════════════════════════════════════════════════════════════
+--  2. SEÇÃO DE AUTO TREINO INTELIGENTE COM EMOJI DE MÚSCULO 💪
+-- ══════════════════════════════════════════════════════════════
+createSectionHeader(TreinoTab, "💪 AUTO TREINO INTELIGENTE")
+
+createLabel(TreinoTab, "Modo de Posicionamento / Ataque:")
+createDropdown(TreinoTab, "", TrainPositioningOptions, Config.TrainPositioning, function(posId)
+    Config.TrainPositioning = posId
 end)
 
 createLabel(TreinoTab, "Mundo de Treino:")
@@ -3518,35 +3537,25 @@ TrainToggle = createToggle(TreinoTab, "Auto Treino", Config.AutoTrain, function(
     end
 end)
 
-createToggle(TreinoTab, "Auto Rebirth", Config.AutoRebirth, function(val)
-    Config.AutoRebirth = val
-end)
-
-MainStatsCard = createInfoCard(TreinoTab, "📊 Estatísticas em Tempo Real", "Clicks: 0 | Rebirths: 0", Themes.Accent2)
-
 local function isPaidOrRobuxZone(inst)
     if not inst then return false end
-    local cur = inst
-    while cur and cur ~= workspace do
-        local n = string.lower(cur.Name)
-        if n:find("robux") or n:find("paid") or n:find("devproduct") or n:find("gamepass")
-           or n:find("comprar") or n:find("buy") or n:find("price")
-           or (n:find("multiplicador") and (n:find("poder") or n:find("nivel") or n:find("nível") or n:find("level") or n:find("robux"))) then
-            return true
-        end
-        if cur:GetAttribute("IsRobux") == true or cur:GetAttribute("GamepassId") or cur:GetAttribute("ProductId") or cur:GetAttribute("Price") then
-            return true
-        end
-        local zNum = tonumber(cur.Name:match("^TrainingZone(%d+)$")) or tonumber(cur:GetAttribute("ZoneId"))
-        if zNum then
-            for _, z in ipairs(AllTrainingZones) do
-                if tonumber(z.Id) == zNum and z.IsRobux then
-                    return true
-                end
+    local zNum = tonumber(inst.Name:match("^TrainingZone(%d+)$")) or tonumber(inst:GetAttribute("ZoneId"))
+    if zNum then
+        for _, z in ipairs(AllTrainingZones) do
+            if tonumber(z.Id) == zNum then
+                return z.IsRobux == true
             end
         end
-        cur = cur.Parent
     end
+    local hb = inst:FindFirstChild("Hitbox")
+    local bb = hb and hb:FindFirstChild("TrainingZoneBillboard")
+    if bb then
+        local gp = bb:FindFirstChild("GamepassRequirement")
+        if gp and gp.Visible then return true end
+        local reb = bb:FindFirstChild("RebirthRequirement")
+        if reb and reb.Visible then return false end
+    end
+    if inst:GetAttribute("IsRobux") == true or inst:GetAttribute("GamepassId") then return true end
     return false
 end
 
@@ -3556,44 +3565,19 @@ local cachedHitbox = nil
 local cachedModel = nil
 
 local function findTrainingBag(worldNum, zoneId)
-    if cachedBagZoneId == zoneId and cachedBag and cachedBag.Parent and cachedHitbox and cachedHitbox.Parent then
-        return cachedBag, cachedHitbox, cachedModel
-    end
-
     local mapName = "Map"
     if worldNum == 2 then mapName = "MapTest"
     elseif worldNum and worldNum >= 3 then mapName = "Map" .. worldNum end
     
-    local map = workspace:FindFirstChild(mapName)
+    local map = workspace:FindFirstChild(mapName) or getCurrentMap()
     if not map then return nil, nil end
     
-    local zoneContainer = map:FindFirstChild("TrainingZones") or map:FindFirstChild("Zones")
-    local searchIn = (zoneContainer and zoneContainer:GetChildren()) or map:GetDescendants()
-    
-    for _, d in ipairs(searchIn) do
-        if d:IsA("Model") and (d:GetAttribute("ZoneId") == tostring(zoneId) or d.Name == "TrainingZone" .. tostring(zoneId)) then
-            if Config.TrainZoneFilter == "free" and isPaidOrRobuxZone(d) then
-                -- Ignora se filtro estiver configurado para apenas grátis
-            else
-                local bag = d:FindFirstChild("PunchingBag")
-                local hb = d:FindFirstChild("Hitbox")
-                cachedBagZoneId = zoneId
-                cachedBag = bag
-                cachedHitbox = hb
-                cachedModel = d
-                return bag, hb, d
-            end
-        end
-    end
-    for _, d in ipairs(searchIn) do
-        if d:IsA("Model") and d.Name:match("^TrainingZone") then
-            if not (Config.TrainZoneFilter == "free" and isPaidOrRobuxZone(d)) then
-                local bag = d:FindFirstChild("PunchingBag")
-                local hb = d:FindFirstChild("Hitbox")
-                cachedBagZoneId = zoneId
-                cachedBag = bag
-                cachedHitbox = hb
-                cachedModel = d
+    local targetName = "TrainingZone" .. tostring(zoneId)
+    for _, d in ipairs(map:GetDescendants()) do
+        if d:IsA("Model") and (d.Name == targetName or d:GetAttribute("ZoneId") == tostring(zoneId)) then
+            local bag = d:FindFirstChild("PunchingBag")
+            local hb = d:FindFirstChild("Hitbox")
+            if bag or hb then
                 return bag, hb, d
             end
         end
@@ -3610,45 +3594,107 @@ local function getBestUnlockedZone(specificWorld, filterType)
         local r = ls and ls:FindFirstChild("Rebirths")
         if r then rebirths = tonumber(r.Value) or 0 end
     end)
-    local best = nil
-    local maxMult = -1
+    
     local targetWorldNum = nil
     if specificWorld and specificWorld ~= "auto" then
         targetWorldNum = tonumber(string.match(tostring(specificWorld), "%d+"))
+    else
+        local cur = getCurrentMap()
+        if cur then
+            if cur.Name == "MapTest" then
+                targetWorldNum = 2
+            elseif cur.Name == "Map" then
+                targetWorldNum = 1
+            else
+                targetWorldNum = tonumber(string.match(cur.Name, "%d+")) or 1
+            end
+        else
+            targetWorldNum = 1
+        end
     end
+    
     local targetFilter = filterType or Config.TrainZoneFilter or "free"
-    local MarketplaceService = game:GetService("MarketplaceService")
+    local best = nil
+    local maxMult = -1
 
-    for _, z in ipairs(AllTrainingZones) do
-        if z.Id ~= "auto" and (not targetWorldNum or z.World == targetWorldNum) then
-            local isAvailable = false
-            if z.IsRobux then
-                if targetFilter == "all" or targetFilter == "robux" then
-                    local owns = false
-                    if z.GamepassId then
-                        if ownedGamepassesCache[z.GamepassId] ~= nil then
-                            owns = ownedGamepassesCache[z.GamepassId]
-                        else
-                            pcall(function()
-                                owns = MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, z.GamepassId)
-                                ownedGamepassesCache[z.GamepassId] = owns
-                            end)
+    -- 1. Verifica diretamente nas TrainingZones do mapa atual (100% fiel ao status visual do jogo)
+    local curMap = getCurrentMap()
+    if curMap then
+        for _, d in ipairs(curMap:GetDescendants()) do
+            if d:IsA("Model") and d.Name:match("^TrainingZone(%d+)$") then
+                local zId = tonumber(d.Name:match("^TrainingZone(%d+)$"))
+                local isRobux = isPaidOrRobuxZone(d)
+                local filterOk = (targetFilter == "all") or (targetFilter == "free" and not isRobux) or (targetFilter == "robux" and isRobux)
+                if filterOk then
+                    local isUnlocked = false
+                    local mult = 0
+                    local hb = d:FindFirstChild("Hitbox")
+                    local bb = hb and hb:FindFirstChild("TrainingZoneBillboard")
+                    if bb then
+                        local statusLbl = bb:FindFirstChild("StatusLabel")
+                        if statusLbl and statusLbl.Visible and (statusLbl.Text == "Unlocked" or statusLbl.Text == "Desbloqueado") then
+                            isUnlocked = true
+                        end
+                        local multLbl = bb:FindFirstChild("MultiplierLabel")
+                        if multLbl and multLbl.Text then
+                            local mNum = tonumber(string.match(multLbl.Text:gsub(",", "."), "(%d+%.?%d*)"))
+                            if mNum then
+                                if multLbl.Text:lower():find("m") then mNum = mNum * 1000000
+                                elseif multLbl.Text:lower():find("k") then mNum = mNum * 1000 end
+                                mult = mNum
+                            end
                         end
                     end
-                    isAvailable = owns
+                    if mult <= 0 or not isUnlocked then
+                        for _, z in ipairs(AllTrainingZones) do
+                            if tonumber(z.Id) == zId then
+                                if mult <= 0 then mult = z.Multiplier or 1 end
+                                if not isUnlocked and (z.Rebirth or 0) <= rebirths and not z.IsRobux then
+                                    isUnlocked = true
+                                end
+                                break
+                            end
+                        end
+                    end
+                    if isUnlocked and mult > maxMult then
+                        maxMult = mult
+                        for _, z in ipairs(AllTrainingZones) do
+                            if tonumber(z.Id) == zId then
+                                best = z
+                                break
+                            end
+                        end
+                        if not best then
+                            best = {Id = tostring(zId), Name = "Zona " .. zId, World = targetWorldNum or 1, Multiplier = mult}
+                        end
+                    end
                 end
-            else
-                if targetFilter == "all" or targetFilter == "free" then
-                    isAvailable = ((z.Rebirth or 0) <= rebirths)
-                end
-            end
-            
-            if isAvailable and (z.Multiplier or 0) > maxMult then
-                maxMult = z.Multiplier or 0
-                best = z
             end
         end
     end
+
+    -- 2. Fallback caso não tenha encontrado diretamente pelo mapa: busca em AllTrainingZones
+    if not best then
+        for _, z in ipairs(AllTrainingZones) do
+            if z.Id ~= "auto" and (not targetWorldNum or z.World == targetWorldNum) then
+                local isAvailable = false
+                if z.IsRobux then
+                    if targetFilter == "all" or targetFilter == "robux" then
+                        isAvailable = false
+                    end
+                else
+                    if targetFilter == "all" or targetFilter == "free" then
+                        isAvailable = ((z.Rebirth or 0) <= rebirths)
+                    end
+                end
+                if isAvailable and (z.Multiplier or 0) > maxMult then
+                    maxMult = z.Multiplier or 0
+                    best = z
+                end
+            end
+        end
+    end
+    
     return best or AllTrainingZones[1]
 end
 
@@ -3881,6 +3927,9 @@ spawnThread(function()
     local lastDisabledBag = nil
     local lastTrainTouch = 0
     local lastTrainVClick = 0
+    local currentTrainedBag = nil
+    local isPositioned = false
+
     while true do
         if Config.AutoTrain and not isBossActive() and not Config.AutoEndless and not isInsideEndless() and not (isRaidActive() and Config.AutoEnterRaid) and not isInsideRaid() then
             pcall(function()
@@ -3888,7 +3937,10 @@ spawnThread(function()
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if not char or not hum or hum.Health <= 0 or not hrp then return end
+                if not char or not hum or hum.Health <= 0 or not hrp then
+                    isPositioned = false
+                    return
+                end
                 
                 local targetZone = nil
                 if Config.SelectedTrainZone == "auto" then
@@ -3910,6 +3962,7 @@ spawnThread(function()
                     if RemoteRequestWorldChange then
                         RemoteRequestWorldChange:InvokeServer(wNum)
                         task.wait(1.5)
+                        isPositioned = false
                         return
                     end
                 end
@@ -3931,25 +3984,31 @@ spawnThread(function()
                     local facingVec = (bag and bagPivot.LookVector) or (hitbox and hitbox.CFrame.LookVector) or Vector3.new(0, 0, 1)
                     if facingVec.Magnitude < 0.1 then facingVec = Vector3.new(0, 0, 1) end
                     
-                    --  SEMPRE ATACA À DISTÂNCIA NO SACO DE PANCADAS (7.5 studs de distância segura, pés no chão)
                     local floorY = (hitbox and (hitbox.Position.Y + 2.5)) or (hrp.Position.Y)
-                    local distOffset = 7.5
-                    if Config.TrainPositioning == "medium" then
-                        distOffset = 5.5
-                    elseif Config.TrainPositioning == "center" and hitbox then
-                        distOffset = (bagPos - hitbox.Position).Magnitude
+                    
+                    -- Posicionamento: Corpo a Corpo (colado no saco) ou A Distância (na borda da hitbox/pad)
+                    local distOffset = 1.8
+                    if Config.TrainPositioning == "distance" then
+                        distOffset = 7.0
                     end
+                    
                     local standPos = Vector3.new(bagPos.X + facingVec.X * distOffset, floorY, bagPos.Z + facingVec.Z * distOffset)
                     local targetCF = CFrame.lookAt(standPos, Vector3.new(bagPos.X, floorY, bagPos.Z))
                     
-                    -- Trava o personagem firme sem deixar deslizar para trás
-                    if (hrp.Position - targetCF.Position).Magnitude > 0.8 then
-                        hrp.CFrame = targetCF
+                    -- TELEPORTE INTELIGENTE: Teleporta apenas uma vez; se sair (> 3.5 studs de distância), teleporta de volta!
+                    local targetObj = bag or hitbox
+                    if currentTrainedBag ~= targetObj then
+                        currentTrainedBag = targetObj
+                        isPositioned = false
                     end
-                    hrp.Velocity = Vector3.zero
-                    hrp.RotVelocity = Vector3.zero
-                    if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.zero end
-                    if hrp.AssemblyAngularVelocity then hrp.AssemblyAngularVelocity = Vector3.zero end
+                    
+                    local currentDist = (hrp.Position - standPos).Magnitude
+                    if not isPositioned or currentDist > 3.5 then
+                        hrp.CFrame = targetCF
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                        isPositioned = true
+                    end
                     
                     local now = os.clock()
                     if hitbox and firetouchinterest and (now - lastTrainTouch >= 1.5) then
@@ -3968,6 +4027,9 @@ spawnThread(function()
                     end
                 end
             end)
+        else
+            isPositioned = false
+            currentTrainedBag = nil
         end
         local cps = math.clamp(Config.ClickCPS or 5, 1, 50)
         task.wait(1 / cps)
