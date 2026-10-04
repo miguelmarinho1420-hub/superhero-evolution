@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791116885
+local SCRIPT_VERSION_TIMESTAMP = 1791118319
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -1281,6 +1281,63 @@ end)
 -- 3. MOTOR DO AUTO WIN (DESLIZE, COMBATE E PARADA NO PAD ALVO)
 -- ══════════════════════════════════════════════════════════════
 
+local StabilizedPads = {}
+
+-- Mantém o Pad 100% visível e travado no lugar ORIGINAL dele (sem teleportar e sem sumir por física/script)
+local function stabilizePadPart(part)
+    if not part or not part:IsA("BasePart") or StabilizedPads[part] then return end
+    StabilizedPads[part] = true
+    
+    local origCF = part.CFrame
+    local origTrans = part.Transparency
+    
+    pcall(function()
+        part.Anchored = true
+        part.CanCollide = false
+        part.AssemblyLinearVelocity = Vector3.zero
+        part.AssemblyAngularVelocity = Vector3.zero
+    end)
+    
+    -- Se qualquer física ou script tentar mover ou lançar o pad para o limbo, trava no CFrame original
+    local cConn = part:GetPropertyChangedSignal("CFrame"):Connect(function()
+        if part and part.Parent then
+            if (part.CFrame.Position - origCF.Position).Magnitude > 0.01 then
+                pcall(function()
+                    part.CFrame = origCF
+                    part.AssemblyLinearVelocity = Vector3.zero
+                    part.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+        end
+    end)
+    table.insert(ActiveConnections, cConn)
+    
+    -- Se o jogo tentar deixar o pad invisível (sumir ao pegar), mantém a transparência original
+    local tConn = part:GetPropertyChangedSignal("Transparency"):Connect(function()
+        if part and part.Parent and part.Transparency > origTrans then
+            pcall(function()
+                part.Transparency = origTrans
+            end)
+        end
+    end)
+    table.insert(ActiveConnections, tConn)
+end
+
+local function stabilizePad(pad)
+    if not pad then return end
+    if pad:IsA("BasePart") then
+        stabilizePadPart(pad)
+    end
+    local parent = pad.Parent
+    if parent and (parent:IsA("Model") or parent:IsA("Folder")) then
+        for _, desc in ipairs(parent:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                stabilizePadPart(desc)
+            end
+        end
+    end
+end
+
 -- Deslize contínuo em voo suave na altura do chão com no-clip total e sem teleporte
 local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTargetY)
     local char = LocalPlayer.Character
@@ -1504,9 +1561,10 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     -- 4. Tratamento do Estágio
     if isFinalTargetStage then
         -- Último estágio selecionado: o personagem desliza suavemente para cima do Pad (Free)
-        -- O pad fica 100% imóvel no lugar original dele (sem teleporte e sem alterações)
+        -- O pad fica 100% imóvel no lugar original dele (sem teleporte e sem sumir)
         local targetPad = getStageFreePad(stage)
         if targetPad then
+            stabilizePad(targetPad)
             local padOffset = getHumanoidFloorOffset(char)
             local padTopY = targetPad.Position.Y + (targetPad.Size.Y * 0.5)
             local padTargetCF = CFrame.new(targetPad.Position.X, padTopY + padOffset, targetPad.Position.Z)
@@ -1542,6 +1600,7 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                 hum = char and char:FindFirstChildOfClass("Humanoid")
                 if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
                 
+                hrp.CFrame = padTargetCF
                 hrp.AssemblyLinearVelocity = Vector3.zero
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
@@ -1565,6 +1624,8 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                 end
                 task.wait(0.05)
             end
+            
+            task.wait(0.2)
         end
     else
         -- Estágio intermediário: desliza suavemente até o Gate na altura do chão
