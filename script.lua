@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1790897063
+local SCRIPT_VERSION_TIMESTAMP = 1791081104
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -102,9 +102,9 @@ local Config = {
     RebirthDelay = 1.5,
     RebirthsCount = 0,
     
-    -- 3. Auto Win (Progressão & Estágios - Padrão Mundo 9, Estágio 135, 0.5s de espera)
-    SelectedProgWorld = "world9",
-    SelectedProgStage = "Stage135",
+    -- 3. Auto Win (Progressão & Estágios - Padrão Mundo 10, Estágio 150, 0.5s de espera)
+    SelectedProgWorld = "world10",
+    SelectedProgStage = "Stage150",
     AutoWin = false,
     CombatTime = 0.5,
     WinGlideSpeed = 75,
@@ -211,11 +211,13 @@ local WorldsData = {
     {Id = "world7", Name = "Mundo 7", WorldNum = 7, MapName = "Map7", Min = 91, Max = 105},
     {Id = "world8", Name = "Mundo 8", WorldNum = 8, MapName = "Map8", Min = 106, Max = 120},
     {Id = "world9", Name = "Mundo 9", WorldNum = 9, MapName = "Map9", Min = 121, Max = 135},
-    {Id = "all", Name = "Todos os Mundos", WorldNum = nil, MapName = nil, Min = 1, Max = 135}
+    {Id = "world10", Name = "Mundo 10", WorldNum = 10, MapName = "Map10", Min = 136, Max = 150},
+    {Id = "all", Name = "Todos os Mundos", WorldNum = nil, MapName = nil, Min = 1, Max = 150}
 }
 
 local EndlessWorldsList = {
     {Id = "current", Name = "Mundo Atual / Mais Próximo"},
+    {Id = "world10", Name = "Mundo 10"},
     {Id = "world9", Name = "Mundo 9"},
     {Id = "world8", Name = "Mundo 8"},
     {Id = "world7", Name = "Mundo 7"},
@@ -235,6 +237,7 @@ local EndlessArenaCenters = {
     [7] = Vector3.new(4813.55, 34.0, -1305.00),
     [8] = Vector3.new(5663.95, 34.0, -1305.00),
     [9] = Vector3.new(6450.23, 34.0, -1305.00),
+    [10] = Vector3.new(7219.63, 34.0, -1305.00),
 }
 
 -- Threads & Connections Tracker
@@ -795,7 +798,7 @@ local function getStagesOptionsForWorld(worldId)
         return list
     end
     if worldId == "all" then
-        for i = 1, 135 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
+        for i = 1, 150 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
         return list
     end
     for i = 1, 15 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
@@ -812,16 +815,16 @@ local function getStageFreePad(stageInstance)
     local padFolder = stageInstance:FindFirstChild("Pad")
     if not padFolder then return nil end
     
-    -- 1. Busca direta dentro de Pad.Free
+    -- 1. Busca direta dentro de Pad.Free (suporta Model e sub-hierarquias)
     local free = padFolder:FindFirstChild("Free")
     if free then
         if free:IsA("BasePart") then return free end
-        local p = free:FindFirstChild("Pad") or free.PrimaryPart or free:FindFirstChildWhichIsA("BasePart")
+        local p = free:FindFirstChild("Pad", true) or free.PrimaryPart or free:FindFirstChildWhichIsA("BasePart", true)
         if p then return p end
     end
     
     -- 2. Busca direta por parte chamada Pad
-    local direct = padFolder:FindFirstChild("Pad")
+    local direct = padFolder:FindFirstChild("Pad", true)
     if direct and direct:IsA("BasePart") then return direct end
     
     -- 3. Busca por qualquer filho com 'free' no nome
@@ -918,14 +921,14 @@ local function getTrainingHitboxList()
     local curMap = getCurrentMap()
     local containers = {}
     if curMap then
-        local tz = curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
+        local tz = curMap:FindFirstChild("TrainingZone") or curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
         if tz then table.insert(containers, tz) end
         table.insert(containers, curMap)
     end
     for _, extra in ipairs({"Map", "MapTest"}) do
         local m = workspace:FindFirstChild(extra)
         if m and m ~= curMap then
-            local tz = m:FindFirstChild("TrainingZones") or m:FindFirstChild("Zones")
+            local tz = m:FindFirstChild("TrainingZone") or m:FindFirstChild("TrainingZones") or m:FindFirstChild("Zones")
             if tz then table.insert(containers, tz) end
             table.insert(containers, m)
         end
@@ -1604,7 +1607,7 @@ spawnThread(function()
                 
                 local chosenWorld = Config.SelectedProgWorld
                 if chosenWorld == "all" then
-                    for wNum = 1, 9 do
+                    for wNum = 1, 10 do
                         if not Config.AutoWin or Config.SelectedProgWorld ~= "all" then break end
                         local wData = WorldsData[wNum]
                         if wData and wData.MapName then
@@ -1767,7 +1770,7 @@ local function getSelectedEndlessWorldNum()
     end
     
     if not targetWorld or targetWorld < 2 then targetWorld = 2 end
-    if targetWorld > 9 then targetWorld = 9 end
+    if targetWorld > 10 then targetWorld = 10 end
     return targetWorld
 end
 
