@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791115228
+local SCRIPT_VERSION_TIMESTAMP = 1791116885
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -1280,39 +1280,9 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 3. MOTOR DO AUTO WIN (DESLIZE, COMBATE E PARADA NO PAD ALVO)
 -- ══════════════════════════════════════════════════════════════
-local LockedPads = {}
-local OriginalPadCFrames = {}
-
-local function lockPadStationary(pad)
-    if not pad or not pad:IsA("BasePart") or LockedPads[pad] then return end
-    LockedPads[pad] = true
-    local free = pad.Parent
-    local basePart = free and (free:FindFirstChild("Part") or free:FindFirstChildWhichIsA("BasePart"))
-    local groundY = (basePart and basePart:IsA("BasePart") and basePart ~= pad) and (basePart.Position.Y + 0.4) or pad.Position.Y
-    local targetCF = pad.CFrame
-    if basePart and pad.Position.Y > basePart.Position.Y + 1.0 then
-        targetCF = CFrame.new(pad.Position.X, groundY, pad.Position.Z) * (pad.CFrame - pad.Position)
-        pad.CFrame = targetCF
-    end
-    OriginalPadCFrames[pad] = targetCF
-    pad.CanCollide = false
-    pad.Anchored = true
-    
-    local conn = pad:GetPropertyChangedSignal("CFrame"):Connect(function()
-        if pad and pad.Parent then
-            local orig = OriginalPadCFrames[pad]
-            if orig and (pad.CFrame.Position - orig.Position).Magnitude > 0.02 then
-                pad.CFrame = orig
-                pad.Velocity = Vector3.zero
-                pad.RotVelocity = Vector3.zero
-            end
-        end
-    end)
-    table.insert(ActiveConnections, conn)
-end
 
 -- Deslize contínuo em voo suave na altura do chão com no-clip total e sem teleporte
-local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
+local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTargetY)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1325,21 +1295,22 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     local startPos = hrp.Position
     local offset = getHumanoidFloorOffset(char)
     
-    -- Ajusta o targetPos para a altura do chão caso tenha chão detectado
-    local targetFloorY = getFloorHeightAt(targetPos.X, targetPos.Z, targetPos.Y, char)
-    if targetFloorY then
-        targetPos = Vector3.new(targetPos.X, targetFloorY + offset, targetPos.Z)
+    -- Ajusta o targetPos para a altura do chão caso tenha chão detectado (se não for destino exato como em cima do Pad)
+    if not exactTargetY then
+        local targetFloorY = getFloorHeightAt(targetPos.X, targetPos.Z, targetPos.Y, char)
+        if targetFloorY then
+            targetPos = Vector3.new(targetPos.X, targetFloorY + offset, targetPos.Z)
+        end
     end
     
     local horizDistInit = (Vector3.new(targetPos.X - startPos.X, 0, targetPos.Z - startPos.Z)).Magnitude
     if horizDistInit < 0.3 then
-        local floorY = getFloorHeightAt(targetPos.X, targetPos.Z, hrp.Position.Y, char)
-        local curY = (floorY and (floorY + offset)) or hrp.Position.Y
+        local finalY = exactTargetY and targetPos.Y or ((getFloorHeightAt(targetPos.X, targetPos.Z, hrp.Position.Y, char) and (getFloorHeightAt(targetPos.X, targetPos.Z, hrp.Position.Y, char) + offset)) or targetPos.Y)
         local flatDir = Vector3.new(targetCFrame.LookVector.X, 0, targetCFrame.LookVector.Z)
         if flatDir.Magnitude > 0.01 then
-            hrp.CFrame = CFrame.lookAt(Vector3.new(targetPos.X, curY, targetPos.Z), Vector3.new(targetPos.X, curY, targetPos.Z) + flatDir)
+            hrp.CFrame = CFrame.lookAt(Vector3.new(targetPos.X, finalY, targetPos.Z), Vector3.new(targetPos.X, finalY, targetPos.Z) + flatDir)
         else
-            hrp.CFrame = CFrame.new(targetPos.X, curY, targetPos.Z)
+            hrp.CFrame = CFrame.new(targetPos.X, finalY, targetPos.Z)
         end
         return true
     end
@@ -1394,8 +1365,7 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
         end
         
         if horizDist <= math.max(step * 0.95, 0.4) or (os.clock() - t0 >= maxDuration) then
-            local floorY = getFloorHeightAt(targetPos.X, targetPos.Z, currentPos.Y, char)
-            local finalY = (floorY and (floorY + offset)) or currentPos.Y
+            local finalY = exactTargetY and targetPos.Y or ((getFloorHeightAt(targetPos.X, targetPos.Z, currentPos.Y, char) and (getFloorHeightAt(targetPos.X, targetPos.Z, currentPos.Y, char) + offset)) or currentPos.Y)
             local flatDir = Vector3.new(horizDiff.X, 0, horizDiff.Z)
             if flatDir.Magnitude > 0.01 then
                 hrp.CFrame = CFrame.lookAt(Vector3.new(targetPos.X, finalY, targetPos.Z), Vector3.new(targetPos.X, finalY, targetPos.Z) + flatDir)
@@ -1409,9 +1379,17 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
             local moveDist = math.min(step, horizDist)
             local nextHoriz = currentPos + (moveDir * moveDist)
             
-            -- Detecta a altura do chão a cada passo para voar colado à superfície
-            local floorY = getFloorHeightAt(nextHoriz.X, nextHoriz.Z, currentPos.Y, char)
-            local targetY = (floorY and (floorY + offset)) or currentPos.Y
+            local targetY
+            if exactTargetY then
+                -- Quando o alvo for o Pad: sobe suavemente para cima dele conforme se aproxima
+                local progress = 1.0 - math.clamp(horizDist / math.max(horizDistInit, 1), 0, 1)
+                local floorY = getFloorHeightAt(nextHoriz.X, nextHoriz.Z, currentPos.Y, char)
+                local baseGroundY = (floorY and (floorY + offset)) or currentPos.Y
+                targetY = baseGroundY + (targetPos.Y - baseGroundY) * math.clamp(progress * 1.5, 0, 1)
+            else
+                local floorY = getFloorHeightAt(nextHoriz.X, nextHoriz.Z, currentPos.Y, char)
+                targetY = (floorY and (floorY + offset)) or currentPos.Y
+            end
             
             -- Interpolação suave no eixo Y para acompanhar degraus e rampas sem cortes
             local nextY = currentPos.Y + (targetY - currentPos.Y) * math.clamp(dt * 20, 0.18, 1.0)
@@ -1525,16 +1503,15 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     
     -- 4. Tratamento do Estágio
     if isFinalTargetStage then
-        -- Último estágio selecionado: desliza continuamente até o Pad (Free) na altura do chão
+        -- Último estágio selecionado: o personagem desliza suavemente para cima do Pad (Free)
+        -- O pad fica 100% imóvel no lugar original dele (sem teleporte e sem alterações)
         local targetPad = getStageFreePad(stage)
         if targetPad then
-            lockPadStationary(targetPad)
             local padOffset = getHumanoidFloorOffset(char)
-            local padFloorY = getFloorHeightAt(targetPad.Position.X, targetPad.Position.Z, targetPad.Position.Y, char)
-            local padTargetY = (padFloorY and (padFloorY + padOffset)) or (targetPad.Position.Y + (targetPad.Size.Y * 0.5) + padOffset)
-            local padTargetCF = CFrame.new(targetPad.Position.X, padTargetY, targetPad.Position.Z)
+            local padTopY = targetPad.Position.Y + (targetPad.Size.Y * 0.5)
+            local padTargetCF = CFrame.new(targetPad.Position.X, padTopY + padOffset, targetPad.Position.Z)
             
-            local okPad = glideToCFrame(padTargetCF, nil, true)
+            local okPad = glideToCFrame(padTargetCF, nil, true, true)
             if not okPad then return false, "dead" end
             
             if firetouchinterest then
