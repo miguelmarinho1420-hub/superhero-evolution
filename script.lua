@@ -7,13 +7,13 @@
     Automações Otimizadas:
        • ⚡ Auto Click (Zero FPS Drop - Otimização de Busca & Cliques Desacoplados)
        • 🔄 Auto Rebirth (Com Delay Slider & Estatísticas em Tempo Real)
-       • 🏆 Auto Farm Win (Deslize Suave pelos Estágios, Espera 0.5s e Parada no Pad Alvo)
+       • 🏆 Auto Farm Win (Deslize Suave pelos Estágios, Pad Alvo e Auto Retorno ao Spawn)
        • 🌀 Auto Endless (CO-OP Sem Fim, Auto Portal, Hold Seguro, Auto Hop)
        • 🛡️ Anti-AFK Silencioso
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791118319
+local SCRIPT_VERSION_TIMESTAMP = 1791122307
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -108,6 +108,8 @@ local Config = {
     AutoWin = false,
     CombatTime = 0.5,
     WinGlideSpeed = 105,
+    ReturnToSpawnAfterWin = true,
+    SpawnReturnMethod = "Teleport", -- "Teleport" (Instantâneo) ou "Reset" (Resetar Personagem)
     WinsCount = 0,
     
     -- 4. Auto Endless (CO-OP Sem Fim)
@@ -146,6 +148,8 @@ local function saveConfig()
             AutoWin = Config.AutoWin,
             CombatTime = Config.CombatTime,
             WinGlideSpeed = Config.WinGlideSpeed,
+            ReturnToSpawnAfterWin = Config.ReturnToSpawnAfterWin,
+            SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
             AutoHopBlocked = Config.AutoHopBlocked,
@@ -186,6 +190,12 @@ local function loadConfig()
                 if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
                     Config[k] = v
                 end
+            end
+            if Config.ReturnToSpawnAfterWin == nil then
+                Config.ReturnToSpawnAfterWin = true
+            end
+            if Config.SpawnReturnMethod == nil then
+                Config.SpawnReturnMethod = "Teleport"
             end
             if Config.AutoEndless == true then
                 Config.AutoWin = false
@@ -264,6 +274,8 @@ local function queueScriptOnTeleport()
             AutoWin = Config.AutoWin,
             CombatTime = Config.CombatTime,
             WinGlideSpeed = Config.WinGlideSpeed,
+            ReturnToSpawnAfterWin = Config.ReturnToSpawnAfterWin,
+            SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
             AutoHopBlocked = Config.AutoHopBlocked,
@@ -1051,6 +1063,7 @@ local MiniStats = nil
 local ClickToggle = nil
 local RebirthToggle = nil
 local WinToggle = nil
+local ReturnToSpawnToggle = nil
 local EndlessToggle = nil
 local AntiAfkToggle = nil
 local AutoClosePopupsToggle = nil
@@ -1489,6 +1502,168 @@ local function waitForCharacterAlive(timeout)
     return char, char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildOfClass("Humanoid")
 end
 
+-- Reseta o personagem e aguarda o renascimento completo no Spawn
+local function resetCharacterAndRecover()
+    local oldChar = LocalPlayer.Character
+    local oldHum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
+    pcall(function()
+        if oldHum and oldHum.Health > 0 then
+            oldHum.Health = 0
+            oldHum:ChangeState(Enum.HumanoidStateType.Dead)
+        end
+        if oldChar then
+            oldChar:BreakJoints()
+        end
+    end)
+    local t0 = os.clock()
+    while os.clock() - t0 < 10 do
+        local c = LocalPlayer.Character
+        local h = c and c:FindFirstChildOfClass("Humanoid")
+        local r = c and c:FindFirstChild("HumanoidRootPart")
+        if c and h and h.Health > 0 and r and (c ~= oldChar or os.clock() - t0 > 3.0) then break end
+        task.wait(0.15)
+    end
+    task.wait(0.5)
+end
+
+-- Localiza com precisão o Spawn do Mapa ou do Stage 1
+local function getMapSpawnCFrame(curMap, stagesList)
+    curMap = curMap or getCurrentMap()
+    if not curMap then return nil end
+    
+    -- 1. Procura por SpawnLocation oficial dentro do mapa
+    local sp = curMap:FindFirstChildWhichIsA("SpawnLocation", true)
+    if sp then
+        return sp.CFrame + Vector3.new(0, 3.5, 0)
+    end
+    
+    -- 2. Procura por partes de Spawn no mapa (fora dos estágios 2+)
+    for _, name in ipairs({"SpawnLocation", "PlayerSpawn", "SpawnPoint", "LobbySpawn", "Spawn"}) do
+        for _, child in ipairs(curMap:GetChildren()) do
+            if child.Name:lower() == name:lower() then
+                if child:IsA("BasePart") then
+                    return child.CFrame + Vector3.new(0, 3.5, 0)
+                elseif child:IsA("Model") then
+                    return child:GetPivot() + Vector3.new(0, 3.5, 0)
+                end
+            end
+        end
+        local found = curMap:FindFirstChild(name, true)
+        if found then
+            local pName = found.Parent and found.Parent.Name or ""
+            if not pName:match("^Stage[2-9]") and not pName:match("^Stage%d%d") then
+                if found:IsA("BasePart") then
+                    return found.CFrame + Vector3.new(0, 3.5, 0)
+                elseif found:IsA("Model") then
+                    return found:GetPivot() + Vector3.new(0, 3.5, 0)
+                end
+            end
+        end
+    end
+    
+    -- 3. Procura no Stage 1 (ponto de início dos estágios no mapa)
+    local stage1 = (stagesList and stagesList[1] and stagesList[1].Stage)
+    if not stage1 then
+        local stgFolder = curMap:FindFirstChild("Stages")
+        stage1 = stgFolder and (stgFolder:FindFirstChild("Stage1") or stgFolder:FindFirstChild("Stage 1") or stgFolder:GetChildren()[1])
+    end
+    if stage1 then
+        local stgSpawn = stage1:FindFirstChild("Spawn") or stage1:FindFirstChild("SpawnLocation")
+        if stgSpawn then
+            local p = stgSpawn:IsA("BasePart") and stgSpawn.Position or (stgSpawn:IsA("Model") and stgSpawn:GetPivot().Position)
+            if p then
+                return CFrame.new(p + Vector3.new(0, 3.5, 0))
+            end
+        end
+        local combat1 = getStageCombatPosition(stage1)
+        if combat1 then
+            return CFrame.new(combat1)
+        end
+    end
+    
+    -- 4. Posição da TrainingZone (Hitboxes de treino no lobby/spawn)
+    local tz = curMap:FindFirstChild("TrainingZone") or curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
+    if tz then
+        local p = tz:FindFirstChildWhichIsA("BasePart", true) or (tz:IsA("Model") and tz:GetPivot().Position)
+        if p then
+            local pos = typeof(p) == "Vector3" and p or p.Position
+            return CFrame.new(pos + Vector3.new(0, 3.5, 0))
+        end
+    end
+    
+    -- 5. Procura por qualquer SpawnLocation no Workspace próximo ao mapa
+    local mapPivot = curMap:IsA("Model") and curMap:GetPivot().Position or (curMap:FindFirstChildWhichIsA("BasePart", true) and curMap:FindFirstChildWhichIsA("BasePart", true).Position)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("SpawnLocation") then
+            if not mapPivot or (obj.Position - mapPivot).Magnitude < 1000 then
+                return obj.CFrame + Vector3.new(0, 3.5, 0)
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- Retorna o personagem ao Spawn com suporte a Teleporte Instantâneo e Reset Seguro
+local function returnToSpawn(curMap, worldNum, stagesList)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then
+        waitForCharacterAlive()
+        return
+    end
+    
+    local method = Config.SpawnReturnMethod or "Teleport"
+    
+    if method == "Reset" then
+        resetCharacterAndRecover()
+        return
+    end
+    
+    -- Método 1: Teleporte direto para o Spawn do mapa
+    local spawnCF = getMapSpawnCFrame(curMap, stagesList)
+    
+    -- Dispara remote oficial de mudança de mundo se disponível para o mapa
+    if worldNum and RemoteRequestWorldChange then
+        pcall(function()
+            RemoteRequestWorldChange:InvokeServer(worldNum)
+        end)
+    end
+    
+    if spawnCF then
+        char = LocalPlayer.Character
+        hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = spawnCF
+            task.wait(0.08)
+            hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = spawnCF
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+    end
+    
+    task.wait(0.2)
+    
+    -- Validação: Se por qualquer motivo ainda estiver longe do spawn (> 150 studs) ou spawnCF não encontrado, executa reset de segurança
+    char = LocalPlayer.Character
+    hrp = char and char:FindFirstChild("HumanoidRootPart")
+    hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hrp and spawnCF then
+        local distToSpawn = (hrp.Position - spawnCF.Position).Magnitude
+        if distToSpawn > 150 then
+            resetCharacterAndRecover()
+        end
+    elseif not spawnCF then
+        resetCharacterAndRecover()
+    end
+end
+
 -- Executa o farm do estágio com tempo de espera configurável e parada no Pad alvo na altura do chão
 local function farmStage(stage, isFinalTargetStage, stagesList)
     if not stage or not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
@@ -1733,31 +1908,25 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         end
         
         if isSelectedStage then
-            -- Vitória concluída no último estágio!
-            -- VOO CONTÍNUO DE RETORNO AO ESTÁGIO 1 NA ALTURA DO CHÃO (SEM TELEPORTE, SEM MORRER)
+            -- Vitória concluída no último estágio (Pad coletado)!
             if cancelCheck and cancelCheck() then break end
             if not Config.AutoWin or Config.AutoEndless then break end
             
             task.wait(0.15)
             
-            -- Retorna deslizando suavemente de volta pelos estágios até o Estágio 1
-            if #stagesList > 1 then
-                for backIdx = #stagesList - 1, 1, -1 do
-                    if cancelCheck and cancelCheck() then break end
-                    if not Config.AutoWin or Config.AutoEndless then break end
-                    
-                    local bItem = stagesList[backIdx]
-                    local bCombat = getStageCombatPosition(bItem.Stage)
-                    if bCombat then
-                        glideToCFrame(CFrame.new(bCombat), nil, false)
+            -- Retorna ao Spawn após pegar o Pad
+            if Config.ReturnToSpawnAfterWin then
+                local mapInst = (stagesFolder and stagesFolder.Parent) or getCurrentMap()
+                local wNum = nil
+                if mapInst then
+                    for _, w in ipairs(WorldsData) do
+                        if w.MapName == mapInst.Name then
+                            wNum = w.WorldNum
+                            break
+                        end
                     end
                 end
-            else
-                local firstStage = stagesList[1]
-                local bCombat = getStageCombatPosition(firstStage.Stage)
-                if bCombat then
-                    glideToCFrame(CFrame.new(bCombat), nil, false)
-                end
+                returnToSpawn(mapInst, wNum, stagesList)
             end
             
             task.wait(0.15)
@@ -3277,6 +3446,19 @@ WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.
     saveConfig()
 end)
 
+ReturnToSpawnToggle = createToggle(WinTab, "Voltar ao Spawn Após Pegar o Pad", Config.ReturnToSpawnAfterWin, function(val)
+    Config.ReturnToSpawnAfterWin = val
+    saveConfig()
+end)
+
+createDropdown(WinTab, "", {
+    {Id = "Teleport", Name = "Modo Retorno: Teleporte Instantâneo"},
+    {Id = "Reset", Name = "Modo Retorno: Reset do Personagem"}
+}, Config.SpawnReturnMethod, function(methodId)
+    Config.SpawnReturnMethod = methodId
+    saveConfig()
+end)
+
 createSlider(WinTab, "Tempo de Espera por Estágio", 0.0, 5.0, Config.CombatTime, "s", true, function(val)
     Config.CombatTime = val
     saveConfig()
@@ -3417,6 +3599,7 @@ local function applyLoadedConfig()
         if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick == true, true) end
         if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
         if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
+        if ReturnToSpawnToggle and ReturnToSpawnToggle.Set then ReturnToSpawnToggle.Set(Config.ReturnToSpawnAfterWin == true, true) end
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
