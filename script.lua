@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791081104
+local SCRIPT_VERSION_TIMESTAMP = 1791115228
 
 -- Anti Multiple Instances Protection
 local function destroyExistingHubs()
@@ -107,7 +107,7 @@ local Config = {
     SelectedProgStage = "Stage150",
     AutoWin = false,
     CombatTime = 0.5,
-    WinGlideSpeed = 75,
+    WinGlideSpeed = 105,
     WinsCount = 0,
     
     -- 4. Auto Endless (CO-OP Sem Fim)
@@ -806,8 +806,60 @@ local function getStagesOptionsForWorld(worldId)
 end
 
 -- ══════════════════════════════════════════════════════════════
--- ESTRUTURA DOS ESTÁGIOS (MUNDO 9 E OUTROS MUNDOS)
+-- ESTRUTURA DOS ESTÁGIOS & DETECÇÃO DE ALTURA DO CHÃO
 -- ══════════════════════════════════════════════════════════════
+
+local function isGroundPart(hitPart)
+    if not hitPart or not hitPart:IsA("BasePart") then return false end
+    if not hitPart.CanCollide and hitPart.Transparency >= 0.95 then return false end
+    local p = hitPart.Parent
+    if p and (p:FindFirstChildOfClass("Humanoid") or (p.Parent and p.Parent:FindFirstChildOfClass("Humanoid"))) then
+        return false
+    end
+    return true
+end
+
+local function getHumanoidFloorOffset(char)
+    char = char or LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hip = (hum and hum.HipHeight and hum.HipHeight > 0) and hum.HipHeight or 2.1
+    local halfHrp = (hrp and hrp.Size.Y > 0) and (hrp.Size.Y * 0.5) or 1.0
+    return hip + halfHrp + 0.15
+end
+
+local function getFloorHeightAt(x, z, referenceY, char)
+    char = char or LocalPlayer.Character
+    local refY = referenceY
+    if not refY then
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        refY = hrp and hrp.Position.Y or 20
+    end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local filterList = {}
+    if char then table.insert(filterList, char) end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character then table.insert(filterList, plr.Character) end
+    end
+    params.FilterDescendantsInstances = filterList
+    params.IgnoreWater = true
+    
+    local origin = Vector3.new(x, refY + 15, z)
+    local hit = workspace:Raycast(origin, Vector3.new(0, -50, 0), params)
+    if hit and hit.Instance and isGroundPart(hit.Instance) then
+        return hit.Position.Y
+    end
+    
+    local highOrigin = Vector3.new(x, refY + 45, z)
+    local highHit = workspace:Raycast(highOrigin, Vector3.new(0, -100, 0), params)
+    if highHit and highHit.Instance and isGroundPart(highHit.Instance) then
+        return highHit.Position.Y
+    end
+    
+    return nil
+end
 
 -- Encontra o Pad Livre (Free) do estágio conforme a hierarquia do jogo: Stage > Pad > Free
 local function getStageFreePad(stageInstance)
@@ -839,9 +891,11 @@ local function getStageFreePad(stageInstance)
     return padFolder:FindFirstChildWhichIsA("BasePart", true)
 end
 
--- Encontra a posição exata da área de combate / monstros de cada estágio (Stage > EnemySpawns)
+-- Encontra a posição exata da área de combate / monstros de cada estágio, alinhada à altura do chão
 local function getStageCombatPosition(stageInstance)
     if not stageInstance then return nil end
+    local char = LocalPlayer.Character
+    local offset = getHumanoidFloorOffset(char)
     
     -- 1. Posição média do folder EnemySpawns (exatamente onde os monstros ficam)
     local enemySpawns = stageInstance:FindFirstChild("EnemySpawns")
@@ -858,7 +912,10 @@ local function getStageCombatPosition(stageInstance)
             end
         end
         if count > 0 then
-            return (totalPos / count) + Vector3.new(0, 1.2, 0)
+            local avg = totalPos / count
+            local gY = getFloorHeightAt(avg.X, avg.Z, avg.Y, char)
+            local finalY = (gY and (gY + offset)) or avg.Y
+            return Vector3.new(avg.X, finalY, avg.Z)
         end
     end
     
@@ -872,25 +929,49 @@ local function getStageCombatPosition(stageInstance)
     
     local endPoint = gatePos or padPos
     if spawnPos and endPoint then
-        return (spawnPos + endPoint) * 0.5 + Vector3.new(0, 1.2, 0)
+        local mid = (spawnPos + endPoint) * 0.5
+        local gY = getFloorHeightAt(mid.X, mid.Z, mid.Y, char)
+        local finalY = (gY and (gY + offset)) or mid.Y
+        return Vector3.new(mid.X, finalY, mid.Z)
     end
     
     if padPos then
-        return padPos - Vector3.new(0, 0, 30)
+        local pt = padPos - Vector3.new(0, 0, 30)
+        local gY = getFloorHeightAt(pt.X, pt.Z, pt.Y, char)
+        local finalY = (gY and (gY + offset)) or pt.Y
+        return Vector3.new(pt.X, finalY, pt.Z)
     end
     
-    return stageInstance:IsA("Model") and stageInstance:GetPivot().Position or nil
+    local raw = stageInstance:IsA("Model") and stageInstance:GetPivot().Position or nil
+    if raw then
+        local gY = getFloorHeightAt(raw.X, raw.Z, raw.Y, char)
+        local finalY = (gY and (gY + offset)) or raw.Y
+        return Vector3.new(raw.X, finalY, raw.Z)
+    end
+    return nil
 end
 
--- Encontra a saída / Gate do estágio para avançar sem tocar no Pad intermediário
+-- Encontra a saída / Gate do estágio alinhada à altura do chão para avançar sem tocar no Pad intermediário
 local function getStageGatePosition(stageInstance)
     if not stageInstance then return nil end
+    local char = LocalPlayer.Character
+    local offset = getHumanoidFloorOffset(char)
     local gate = stageInstance:FindFirstChild("Gate") or stageInstance:FindFirstChild("Barrier")
     if gate then
-        return gate:IsA("BasePart") and gate.Position or (gate:IsA("Model") and gate:GetPivot().Position)
+        local pos = gate:IsA("BasePart") and gate.Position or (gate:IsA("Model") and gate:GetPivot().Position)
+        if pos then
+            local gY = getFloorHeightAt(pos.X, pos.Z, pos.Y, char)
+            local finalY = (gY and (gY + offset)) or pos.Y
+            return Vector3.new(pos.X, finalY, pos.Z)
+        end
     end
     local pad = getStageFreePad(stageInstance)
-    if pad then return pad.Position end
+    if pad then
+        local pos = pad.Position
+        local gY = getFloorHeightAt(pos.X, pos.Z, pos.Y, char)
+        local finalY = (gY and (gY + offset)) or pos.Y
+        return Vector3.new(pos.X, finalY, pos.Z)
+    end
     return nil
 end
 
@@ -1230,28 +1311,46 @@ local function lockPadStationary(pad)
     table.insert(ActiveConnections, conn)
 end
 
--- Deslize plano e fluido com no-clip contínuo (elimina stutter e colisões indesejadas)
+-- Deslize contínuo em voo suave na altura do chão com no-clip total e sem teleporte
 local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
     
-    local activeSpeed = Config.WinGlideSpeed or speed or 75
+    local activeSpeed = Config.WinGlideSpeed or speed or 105
     if hum then hum.WalkSpeed = activeSpeed end
     
     local targetPos = targetCFrame.Position
     local startPos = hrp.Position
-    local totalDist = (targetPos - startPos).Magnitude
-    if totalDist < 0.3 then
-        hrp.CFrame = targetCFrame
+    local offset = getHumanoidFloorOffset(char)
+    
+    -- Ajusta o targetPos para a altura do chão caso tenha chão detectado
+    local targetFloorY = getFloorHeightAt(targetPos.X, targetPos.Z, targetPos.Y, char)
+    if targetFloorY then
+        targetPos = Vector3.new(targetPos.X, targetFloorY + offset, targetPos.Z)
+    end
+    
+    local horizDistInit = (Vector3.new(targetPos.X - startPos.X, 0, targetPos.Z - startPos.Z)).Magnitude
+    if horizDistInit < 0.3 then
+        local floorY = getFloorHeightAt(targetPos.X, targetPos.Z, hrp.Position.Y, char)
+        local curY = (floorY and (floorY + offset)) or hrp.Position.Y
+        local flatDir = Vector3.new(targetCFrame.LookVector.X, 0, targetCFrame.LookVector.Z)
+        if flatDir.Magnitude > 0.01 then
+            hrp.CFrame = CFrame.lookAt(Vector3.new(targetPos.X, curY, targetPos.Z), Vector3.new(targetPos.X, curY, targetPos.Z) + flatDir)
+        else
+            hrp.CFrame = CFrame.new(targetPos.X, curY, targetPos.Z)
+        end
         return true
     end
     
+    -- No-clip contínuo e estabilização física durante o voo
     local ncConn = RunService.Stepped:Connect(function()
         if char then
-            for _, part in ipairs(char:GetChildren()) do
-                if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
             end
             if hrp then
                 hrp.AssemblyLinearVelocity = Vector3.zero
@@ -1260,10 +1359,17 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
         end
     end)
     
+    -- Previne queda ou tropeços durante o voo contínuo
+    pcall(function()
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+    end)
+    
     local lastAttackTick = 0
-    local t0 = os.clock()
-    local maxDuration = math.max((totalDist / activeSpeed) + 1.2, 0.35)
     local reached = false
+    local t0 = os.clock()
+    local maxDuration = math.max((horizDistInit / math.max(activeSpeed, 20)) + 3.0, 1.2)
     
     while Config.AutoWin and not Config.AutoEndless do
         local dt = RunService.Heartbeat:Wait()
@@ -1272,9 +1378,13 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
         hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp or not hum or hum.Health <= 0 then break end
         
+        -- Atualiza a velocidade dinamicamente se o usuário mover o slider
+        activeSpeed = Config.WinGlideSpeed or speed or 105
+        if hum then hum.WalkSpeed = activeSpeed end
+        
         local currentPos = hrp.Position
-        local toTarget = targetPos - currentPos
-        local distRemaining = toTarget.Magnitude
+        local horizDiff = Vector3.new(targetPos.X - currentPos.X, 0, targetPos.Z - currentPos.Z)
+        local horizDist = horizDiff.Magnitude
         local step = activeSpeed * dt
         
         if attackWhileMoving and (os.clock() - lastAttackTick >= 0.05) then
@@ -1283,17 +1393,35 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving)
             if RemotePlayerClick then RemotePlayerClick:FireServer() end
         end
         
-        if distRemaining <= math.max(step * 1.15, 0.35) or (os.clock() - t0 >= maxDuration) then
-            hrp.CFrame = targetCFrame
+        if horizDist <= math.max(step * 0.95, 0.4) or (os.clock() - t0 >= maxDuration) then
+            local floorY = getFloorHeightAt(targetPos.X, targetPos.Z, currentPos.Y, char)
+            local finalY = (floorY and (floorY + offset)) or currentPos.Y
+            local flatDir = Vector3.new(horizDiff.X, 0, horizDiff.Z)
+            if flatDir.Magnitude > 0.01 then
+                hrp.CFrame = CFrame.lookAt(Vector3.new(targetPos.X, finalY, targetPos.Z), Vector3.new(targetPos.X, finalY, targetPos.Z) + flatDir)
+            else
+                hrp.CFrame = CFrame.new(targetPos.X, finalY, targetPos.Z) * (targetCFrame - targetCFrame.Position)
+            end
             reached = true
             break
         else
-            local moveDir = toTarget.Unit
-            local nextPos = currentPos + (moveDir * step)
+            local moveDir = horizDiff.Unit
+            local moveDist = math.min(step, horizDist)
+            local nextHoriz = currentPos + (moveDir * moveDist)
+            
+            -- Detecta a altura do chão a cada passo para voar colado à superfície
+            local floorY = getFloorHeightAt(nextHoriz.X, nextHoriz.Z, currentPos.Y, char)
+            local targetY = (floorY and (floorY + offset)) or currentPos.Y
+            
+            -- Interpolação suave no eixo Y para acompanhar degraus e rampas sem cortes
+            local nextY = currentPos.Y + (targetY - currentPos.Y) * math.clamp(dt * 20, 0.18, 1.0)
+            local nextPos = Vector3.new(nextHoriz.X, nextY, nextHoriz.Z)
+            
+            -- Rotação suave na direção do movimento contínuo
             local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-            if flatDir.Magnitude > 0.05 then
-                local lookRot = CFrame.lookAt(nextPos, nextPos + flatDir)
-                hrp.CFrame = hrp.CFrame:Lerp(lookRot, math.clamp(dt * 15, 0.08, 1.0))
+            if flatDir.Magnitude > 0.01 then
+                local targetRot = CFrame.lookAt(nextPos, nextPos + flatDir)
+                hrp.CFrame = hrp.CFrame:Lerp(targetRot, math.clamp(dt * 15, 0.1, 1.0))
             else
                 hrp.CFrame = CFrame.new(nextPos) * (targetCFrame - targetCFrame.Position)
             end
@@ -1326,30 +1454,7 @@ local function waitForCharacterAlive(timeout)
     return char, char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildOfClass("Humanoid")
 end
 
-local function resetCharacterAndRecover()
-    local oldChar = LocalPlayer.Character
-    local oldHum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
-    pcall(function()
-        if oldHum and oldHum.Health > 0 then
-            oldHum.Health = 0
-            oldHum:ChangeState(Enum.HumanoidStateType.Dead)
-        end
-        if oldChar then
-            oldChar:BreakJoints()
-        end
-    end)
-    local t0 = os.clock()
-    while os.clock() - t0 < 10 do
-        local c = LocalPlayer.Character
-        local h = c and c:FindFirstChildOfClass("Humanoid")
-        local r = c and c:FindFirstChild("HumanoidRootPart")
-        if c and h and h.Health > 0 and r and (c ~= oldChar or os.clock() - t0 > 3.0) then break end
-        task.wait(0.15)
-    end
-    task.wait(0.8)
-end
-
--- Executa o farm do estágio com tempo de espera configurável (0.5s padrão) e parada no Pad alvo
+-- Executa o farm do estágio com tempo de espera configurável e parada no Pad alvo na altura do chão
 local function farmStage(stage, isFinalTargetStage, stagesList)
     if not stage or not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
@@ -1378,7 +1483,7 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
         pcall(function() LocalPlayer:RequestStreamAroundAsync(stagePos) end)
     end
     
-    -- 2. Posição da área de combate (EnemySpawns)
+    -- 2. Posição da área de combate (EnemySpawns) alinhada à altura do chão
     local combatPos = getStageCombatPosition(stage)
     if not combatPos then return false, "nopos" end
     
@@ -1386,46 +1491,49 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     hrp = char and char:FindFirstChild("HumanoidRootPart")
     hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-    if hum then hum.WalkSpeed = Config.WinGlideSpeed or 75 end
+    if hum then hum.WalkSpeed = Config.WinGlideSpeed or 105 end
     
-    -- Desliza com velocidade configurada até a área de combate do estágio (sem teleporte brusco)
-    local distToComb = (hrp.Position - combatPos).Magnitude
-    if distToComb > 2.0 then
+    -- Desliza em voo contínuo na altura do chão até a área de combate do estágio
+    local horizDistComb = (Vector3.new(hrp.Position.X - combatPos.X, 0, hrp.Position.Z - combatPos.Z)).Magnitude
+    if horizDistComb > 1.2 then
         local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
         if not okGlide then return false, "dead" end
     end
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- 3. Para no estágio e luta durante o Tempo de Espera (0.5s padrão)
-    -- "deixe com tempo de espera de 0,5 seg para cada estagio"
-    -- "e no ultimo estagio faz parar no estagio antes de ir para o pad"
-    local waitDuration = math.max(0.05, Config.CombatTime or 0.5)
-    local fightStart = os.clock()
-    while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
-        char = LocalPlayer.Character
-        hrp = char and char:FindFirstChild("HumanoidRootPart")
-        hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-        
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        
-        if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
-        if RemotePlayerClick then RemotePlayerClick:FireServer() end
-        task.wait(0.04)
+    -- 3. Para no estágio e luta durante o Tempo de Espera configurado pelo Slider
+    local waitDuration = math.max(0.0, Config.CombatTime or 0.5)
+    if waitDuration > 0 then
+        local fightStart = os.clock()
+        while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
+            
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+            if RemotePlayerClick then RemotePlayerClick:FireServer() end
+            task.wait(0.04)
+        end
     end
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- 4. Tratamento do Pad
-    -- Se for o ÚLTIMO estágio selecionado: agora sim desliza até o Pad (Free) e confirma a vitória!
-    -- Se for estágio intermediário: avança para a saída/Gate sem tocar no Pad.
+    -- 4. Tratamento do Estágio
     if isFinalTargetStage then
+        -- Último estágio selecionado: desliza continuamente até o Pad (Free) na altura do chão
         local targetPad = getStageFreePad(stage)
         if targetPad then
             lockPadStationary(targetPad)
-            local padTargetCF = targetPad.CFrame + Vector3.new(0, 1.0, 0)
+            local padOffset = getHumanoidFloorOffset(char)
+            local padFloorY = getFloorHeightAt(targetPad.Position.X, targetPad.Position.Z, targetPad.Position.Y, char)
+            local padTargetY = (padFloorY and (padFloorY + padOffset)) or (targetPad.Position.Y + (targetPad.Size.Y * 0.5) + padOffset)
+            local padTargetCF = CFrame.new(targetPad.Position.X, padTargetY, targetPad.Position.Z)
+            
             local okPad = glideToCFrame(padTargetCF, nil, true)
             if not okPad then return false, "dead" end
             
@@ -1457,7 +1565,6 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                 hum = char and char:FindFirstChildOfClass("Humanoid")
                 if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
                 
-                hrp.CFrame = padTargetCF
                 hrp.AssemblyLinearVelocity = Vector3.zero
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
@@ -1476,20 +1583,19 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                 
                 if totalWinsCollectedCount > initialWinCount 
                     or lastWinCollectedTick > initialWinTime 
-                    or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins)
-                    or (hrp and (hrp.Position - targetPad.Position).Magnitude > 40) then
+                    or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins) then
                     break
                 end
                 task.wait(0.05)
             end
         end
     else
-        -- Estágio intermediário: desliza suavemente até o Gate para entrar no próximo estágio
+        -- Estágio intermediário: desliza suavemente até o Gate na altura do chão
         local gatePos = getStageGatePosition(stage)
         if gatePos then
-            local distToGate = (hrp.Position - gatePos).Magnitude
-            if distToGate > 1.5 and distToGate < 80 then
-                glideToCFrame(CFrame.new(gatePos + Vector3.new(0, 1.2, 0)), nil, true)
+            local distToGate = (Vector3.new(hrp.Position.X - gatePos.X, 0, hrp.Position.Z - gatePos.Z)).Magnitude
+            if distToGate > 1.2 and distToGate < 90 then
+                glideToCFrame(CFrame.new(gatePos), nil, true)
             end
         end
     end
@@ -1538,17 +1644,17 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not char or not hum or hum.Health <= 0 or not hrp then
         waitForCharacterAlive()
-        task.wait(0.8)
+        task.wait(0.5)
         return
     end
     
-    -- Começa no estágio mais próximo
+    -- Começa no estágio mais próximo ou Stage 1
     local startIndex = 1
     local minDist = math.huge
     for idx, item in ipairs(stagesList) do
         local cPos = getStageCombatPosition(item.Stage)
         if cPos then
-            local d = (hrp.Position - cPos).Magnitude
+            local d = (Vector3.new(hrp.Position.X - cPos.X, 0, hrp.Position.Z - cPos.Z)).Magnitude
             if d < minDist then
                 minDist = d
                 startIndex = idx
@@ -1556,6 +1662,12 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         end
     end
     
+    -- Se estiver longe de qualquer estágio intermediário, garante início do 1
+    if minDist > 250 then
+        startIndex = 1
+    end
+    
+    -- 1. VOO CONTÍNUO PRA FRENTE PELOS ESTÁGIOS NA ALTURA DO CHÃO
     for i = startIndex, #stagesList do
         if cancelCheck and cancelCheck() then break end
         if not Config.AutoWin or Config.AutoEndless then break end
@@ -1565,7 +1677,7 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not char or not hum or hum.Health <= 0 or not hrp then
             waitForCharacterAlive()
-            task.wait(0.8)
+            task.wait(0.5)
             break
         end
         
@@ -1578,20 +1690,39 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not success and (reason == "dead" or reason == "stalled") or not hum or hum.Health <= 0 or not hrp then
             waitForCharacterAlive()
-            task.wait(0.8)
+            task.wait(0.5)
             break
         end
         
         if isSelectedStage then
-            task.wait(0.3)
-            local c = LocalPlayer.Character
-            local r = c and c:FindFirstChild("HumanoidRootPart")
-            local pad = getStageFreePad(item.Stage)
-            if r and pad and (r.Position - pad.Position).Magnitude < 35 then
-                resetCharacterAndRecover()
+            -- Vitória concluída no último estágio!
+            -- VOO CONTÍNUO DE RETORNO AO ESTÁGIO 1 NA ALTURA DO CHÃO (SEM TELEPORTE, SEM MORRER)
+            if cancelCheck and cancelCheck() then break end
+            if not Config.AutoWin or Config.AutoEndless then break end
+            
+            task.wait(0.15)
+            
+            -- Retorna deslizando suavemente de volta pelos estágios até o Estágio 1
+            if #stagesList > 1 then
+                for backIdx = #stagesList - 1, 1, -1 do
+                    if cancelCheck and cancelCheck() then break end
+                    if not Config.AutoWin or Config.AutoEndless then break end
+                    
+                    local bItem = stagesList[backIdx]
+                    local bCombat = getStageCombatPosition(bItem.Stage)
+                    if bCombat then
+                        glideToCFrame(CFrame.new(bCombat), nil, false)
+                    end
+                end
             else
-                task.wait(0.4)
+                local firstStage = stagesList[1]
+                local bCombat = getStageCombatPosition(firstStage.Stage)
+                if bCombat then
+                    glideToCFrame(CFrame.new(bCombat), nil, false)
+                end
             end
+            
+            task.wait(0.15)
             break
         end
     end
@@ -3108,12 +3239,12 @@ WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.
     saveConfig()
 end)
 
-createSlider(WinTab, "Tempo de Espera por Estágio", 0.05, 3.0, Config.CombatTime, "s", true, function(val)
+createSlider(WinTab, "Tempo de Espera por Estágio", 0.0, 5.0, Config.CombatTime, "s", true, function(val)
     Config.CombatTime = val
     saveConfig()
 end)
 
-createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 300, Config.WinGlideSpeed, " Speed", false, function(val)
+createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 350, Config.WinGlideSpeed, " Speed", false, function(val)
     Config.WinGlideSpeed = val
     saveConfig()
 end)
