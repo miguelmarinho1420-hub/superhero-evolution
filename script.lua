@@ -1,23 +1,27 @@
 --[[
     ==============================================================
-    SUPERHERO EVOLUTION HUB - AUTO EDITION V2.0
-    Game: +1 Superhero Evolution (PVP)
+    SUPERHERO EVOLUTION HUB - AUTO EDITION
+    Jogo: +1 Superhero Evolution (PVP)
     Tecla 'K' para Minimizar / Abrir
     
-    Automações Otimizadas:
-       • ⚡ Auto Click (Zero FPS Drop - Otimização de Busca & Cliques Desacoplados)
-       • 🔄 Auto Rebirth (Com Delay Slider & Estatísticas em Tempo Real)
-       • 🏆 Auto Farm Win (Deslize Suave pelos Estágios, Pad Alvo e Auto Retorno ao Spawn)
-       • 🌀 Auto Endless (CO-OP Sem Fim, Auto Portal, Hold Seguro, Auto Hop)
-       • 🛡️ Anti-AFK Silencioso
+    Abas e Automações:
+       • ⚡ Auto Click (100% em Segundo Plano - Sem afetar Chat)
+       • 🔄 Auto Rebirth (100% em Segundo Plano - Automático)
+       • 🏆 Auto Win (Deslize Contínuo, Pad Alvo e Pausa Configurável)
+       • 🌀 Auto Endless (Seleção de Mundos, Padrão Mundo 10, Fica Parado até Morrer)
+       • ⚙️ Config (Salvar Estado, Anti-AFK, Auto Recompensas, Auto Fechar Pop-ups Robux)
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791122307
+local SCRIPT_VERSION_TIMESTAMP = 1791168309
 
--- Anti Multiple Instances Protection
+-- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
-    for _, parent in ipairs({gethui and gethui(), (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")), game:GetService("CoreGui")}) do
+    for _, parent in ipairs({
+        gethui and gethui(),
+        (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")),
+        game:GetService("CoreGui")
+    }) do
         if parent then
             for _, c in ipairs(parent:GetChildren()) do
                 if c.Name:match("^SuperHeroEvolutionHub") then
@@ -36,7 +40,7 @@ if getgenv().SuperHeroEvolutionHubLoaded then
 end
 getgenv().SuperHeroEvolutionHubLoaded = true
 
--- Cleanup ghost listeners
+-- Limpa conexões fantasmas de eventos Endless
 pcall(function()
     if getconnections then
         local rep = game:GetService("ReplicatedStorage")
@@ -59,13 +63,14 @@ pcall(function()
     end
 end)
 
--- Roblox Services
+-- Serviços do Roblox
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local Stats = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
@@ -75,7 +80,7 @@ local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Game Remotes
+-- Remotes Oficiais do Jogo
 local Shared = ReplicatedStorage:WaitForChild("Shared", 10)
 local Remotes = Shared and Shared:WaitForChild("Remotes", 10)
 
@@ -90,47 +95,44 @@ local RemoteEndlessBattleState = Remotes and Remotes:FindFirstChild("EndlessBatt
 local RemoteEndlessUpdate = Remotes and Remotes:FindFirstChild("EndlessUpdate")
 local RemotePlayVFX = Remotes and Remotes:FindFirstChild("PlayVFX")
 
--- Hub Configuration
+-- ══════════════════════════════════════════════════════════════
+-- CONFIGURAÇÕES & ESTADO
+-- ══════════════════════════════════════════════════════════════
 local Config = {
-    -- 1. Auto Click (Otimizado sem queda de FPS)
+    -- 1. Auto Click (Em segundo plano, sem atrapalhar chat)
     FastClick = false,
-    ClickCPS = 10,
+    ClickDelay = 0.1, -- De 0.1s a 10.0s por clique
     ClicksCount = 0,
     
-    -- 2. Auto Rebirth
+    -- 2. Auto Rebirth (Automático em segundo plano)
     AutoRebirth = false,
-    RebirthDelay = 1.5,
+    RebirthDelay = 1.0,
     RebirthsCount = 0,
     
-    -- 3. Auto Win (Progressão & Estágios - Padrão Mundo 10, Estágio 150, 0.5s de espera)
+    -- 3. Auto Win (Deslize contínuo até o estágio alvo)
     SelectedProgWorld = "world10",
     SelectedProgStage = "Stage150",
     AutoWin = false,
-    CombatTime = 0.5,
-    WinGlideSpeed = 105,
+    WinGlideSpeed = 110,
+    PauseFromStage = 1, -- A partir de qual estágio começa a parar para matar inimigos
+    StageStopTime = 0.5, -- Tempo de parada (0.1s a 10.0s)
     ReturnToSpawnAfterWin = true,
-    SpawnReturnMethod = "Teleport", -- "Teleport" (Instantâneo) ou "Reset" (Resetar Personagem)
+    SpawnReturnMethod = "Teleport", -- "Teleport" ou "Reset"
     WinsCount = 0,
     
-    -- 4. Auto Endless (CO-OP Sem Fim)
+    -- 4. Auto Endless (CO-OP Sem Fim - Padrão inicial no Mundo 10)
     AutoEndless = false,
-    EndlessWorld = "current",
-    AutoHopBlocked = false,
+    EndlessWorld = "world10", -- Sempre padrão no melhor mundo (Mundo 10)
     
-    -- Utilitários, Pop-ups & Recompensas
-    AutoClosePopups = true, -- Auto fechar pop-ups de Robux / Reanimação e telas
-    AutoClaimPlaytime = true, -- Auto resgatar recompensas de tempo de jogo
-    AntiAfk = true,
-    
-    -- 5. Salvamento de Estado & Server Hop
+    -- 5. Configurações Gerais
     AutoSaveConfig = true,
+    AntiAfk = true,
+    AutoClaimPlaytime = true,
+    AutoClosePopups = true, -- Auto fechar pop-ups de Robux clicando fora
 }
 
 getgenv().SuperHeroEvolutionHubConfig = Config
 
--- ══════════════════════════════════════════════════════════════
--- SISTEMA DE PERSISTÊNCIA DE CONFIGURAÇÕES & ESTADO
--- ══════════════════════════════════════════════════════════════
 local CONFIG_FILE = "SuperHeroEvolution_Config.json"
 local ConfigRestoredAfterHop = false
 
@@ -140,23 +142,23 @@ local function saveConfig()
         if not (writefile and HttpService) then return end
         local state = {
             FastClick = Config.FastClick,
-            ClickCPS = Config.ClickCPS,
+            ClickDelay = Config.ClickDelay,
             AutoRebirth = Config.AutoRebirth,
             RebirthDelay = Config.RebirthDelay,
             SelectedProgWorld = Config.SelectedProgWorld,
             SelectedProgStage = Config.SelectedProgStage,
             AutoWin = Config.AutoWin,
-            CombatTime = Config.CombatTime,
             WinGlideSpeed = Config.WinGlideSpeed,
+            PauseFromStage = Config.PauseFromStage,
+            StageStopTime = Config.StageStopTime,
             ReturnToSpawnAfterWin = Config.ReturnToSpawnAfterWin,
             SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
-            AutoHopBlocked = Config.AutoHopBlocked,
-            AutoClosePopups = Config.AutoClosePopups,
-            AutoClaimPlaytime = Config.AutoClaimPlaytime,
-            AntiAfk = Config.AntiAfk,
             AutoSaveConfig = Config.AutoSaveConfig,
+            AntiAfk = Config.AntiAfk,
+            AutoClaimPlaytime = Config.AutoClaimPlaytime,
+            AutoClosePopups = Config.AutoClosePopups,
             SavedAt = os.time(),
         }
         writefile(CONFIG_FILE, HttpService:JSONEncode(state))
@@ -166,22 +168,16 @@ end
 local function loadConfig()
     local ok = pcall(function()
         local data = nil
-        -- 1. Verifica se veio do Server Hop na memória global (100% garantido sem depender de I/O de disco)
         if getgenv().SavedHopConfig and type(getgenv().SavedHopConfig) == "string" and #getgenv().SavedHopConfig > 5 then
             local s, d = pcall(function() return HttpService:JSONDecode(getgenv().SavedHopConfig) end)
-            if s and type(d) == "table" then
-                data = d
-            end
+            if s and type(d) == "table" then data = d end
         end
         
-        -- 2. Se não veio da memória, carrega do arquivo salvo no disco
         if not data and readfile and isfile and isfile(CONFIG_FILE) and HttpService then
             local raw = readfile(CONFIG_FILE)
             if raw and #raw >= 5 then
                 local s, d = pcall(function() return HttpService:JSONDecode(raw) end)
-                if s and type(d) == "table" then
-                    data = d
-                end
+                if s and type(d) == "table" then data = d end
             end
         end
         
@@ -190,12 +186,6 @@ local function loadConfig()
                 if Config[k] ~= nil and k ~= "WinsCount" and k ~= "ClicksCount" and k ~= "RebirthsCount" then
                     Config[k] = v
                 end
-            end
-            if Config.ReturnToSpawnAfterWin == nil then
-                Config.ReturnToSpawnAfterWin = true
-            end
-            if Config.SpawnReturnMethod == nil then
-                Config.SpawnReturnMethod = "Teleport"
             end
             if Config.AutoEndless == true then
                 Config.AutoWin = false
@@ -207,10 +197,9 @@ local function loadConfig()
     return ConfigRestoredAfterHop
 end
 
--- Carrega o estado salvo imediatamente para reativar as funções ativas pós-Server Hop
 loadConfig()
 
--- Tabelas de Mundos
+-- Dados dos Mundos do Jogo
 local WorldsData = {
     {Id = "world1", Name = "Mundo 1", WorldNum = 1, MapName = "Map", Min = 1, Max = 15},
     {Id = "world2", Name = "Mundo 2", WorldNum = 2, MapName = "MapTest", Min = 16, Max = 30},
@@ -225,9 +214,9 @@ local WorldsData = {
     {Id = "all", Name = "Todos os Mundos", WorldNum = nil, MapName = nil, Min = 1, Max = 150}
 }
 
+-- Lista de Mundos para Endless (Melhor Mundo / Mundo 10 primeiro por padrão)
 local EndlessWorldsList = {
-    {Id = "current", Name = "Mundo Atual / Mais Próximo"},
-    {Id = "world10", Name = "Mundo 10"},
+    {Id = "world10", Name = "Mundo 10 (Melhor Mundo)"},
     {Id = "world9", Name = "Mundo 9"},
     {Id = "world8", Name = "Mundo 8"},
     {Id = "world7", Name = "Mundo 7"},
@@ -235,7 +224,8 @@ local EndlessWorldsList = {
     {Id = "world5", Name = "Mundo 5"},
     {Id = "world4", Name = "Mundo 4"},
     {Id = "world3", Name = "Mundo 3"},
-    {Id = "world2", Name = "Mundo 2"}
+    {Id = "world2", Name = "Mundo 2"},
+    {Id = "best", Name = "Melhor Disponível (Auto)"}
 }
 
 local EndlessArenaCenters = {
@@ -250,7 +240,7 @@ local EndlessArenaCenters = {
     [10] = Vector3.new(7219.63, 34.0, -1305.00),
 }
 
--- Threads & Connections Tracker
+-- Gerenciador de Threads e Conexões
 local ActiveThreads = {}
 local ActiveConnections = {}
 
@@ -260,29 +250,29 @@ local function spawnThread(func)
     return thread
 end
 
--- Teleport Helpers & Execução Automática Pós-Server Hop
+-- Teleport Helpers & Server Hop
 local function queueScriptOnTeleport()
     pcall(function()
         saveConfig()
         local state = {
             FastClick = Config.FastClick,
-            ClickCPS = Config.ClickCPS,
+            ClickDelay = Config.ClickDelay,
             AutoRebirth = Config.AutoRebirth,
             RebirthDelay = Config.RebirthDelay,
             SelectedProgWorld = Config.SelectedProgWorld,
             SelectedProgStage = Config.SelectedProgStage,
             AutoWin = Config.AutoWin,
-            CombatTime = Config.CombatTime,
             WinGlideSpeed = Config.WinGlideSpeed,
+            PauseFromStage = Config.PauseFromStage,
+            StageStopTime = Config.StageStopTime,
             ReturnToSpawnAfterWin = Config.ReturnToSpawnAfterWin,
             SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
-            AutoHopBlocked = Config.AutoHopBlocked,
-            AutoClosePopups = Config.AutoClosePopups,
-            AutoClaimPlaytime = Config.AutoClaimPlaytime,
-            AntiAfk = Config.AntiAfk,
             AutoSaveConfig = Config.AutoSaveConfig,
+            AntiAfk = Config.AntiAfk,
+            AutoClaimPlaytime = Config.AutoClaimPlaytime,
+            AutoClosePopups = Config.AutoClosePopups,
             SavedAt = os.time(),
         }
         local jsonState = HttpService:JSONEncode(state)
@@ -302,8 +292,6 @@ local function queueScriptOnTeleport()
                     pcall(function()
                         if readfile and isfile and isfile("script.lua") then
                             loadstring(readfile("script.lua"))()
-                        elseif readfile and isfile and isfile("hub.lua") then
-                            loadstring(readfile("hub.lua"))()
                         else
                             loadstring(game:HttpGet("https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/script.lua?t=" .. tostring(os.time())))()
                         end
@@ -317,20 +305,13 @@ end
 queueScriptOnTeleport()
 
 pcall(function()
-    local tpConn = LocalPlayer.OnTeleport:Connect(function()
+    table.insert(ActiveConnections, LocalPlayer.OnTeleport:Connect(function()
         saveConfig()
         queueScriptOnTeleport()
-    end)
-    table.insert(ActiveConnections, tpConn)
-end)
-
-pcall(function()
-    local pConn = Players.PlayerRemoving:Connect(function(p)
-        if p == LocalPlayer then
-            saveConfig()
-        end
-    end)
-    table.insert(ActiveConnections, pConn)
+    end))
+    table.insert(ActiveConnections, Players.PlayerRemoving:Connect(function(p)
+        if p == LocalPlayer then saveConfig() end
+    end))
 end)
 
 local function serverHop()
@@ -364,18 +345,9 @@ local function serverHop()
     TeleportService:Teleport(placeId, LocalPlayer)
 end
 
--- Auto Reconnect se desconectar
-pcall(function()
-    local guiService = game:GetService("GuiService")
-    local reconnectConn = guiService.ErrorMessageChanged:Connect(function()
-        task.wait(1.5)
-        queueScriptOnTeleport()
-        serverHop()
-    end)
-    table.insert(ActiveConnections, reconnectConn)
-end)
-
--- Anti-AFK Silencioso
+-- ══════════════════════════════════════════════════════════════
+-- ANTI-AFK SILENCIOSO
+-- ══════════════════════════════════════════════════════════════
 table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
     if Config.AntiAfk then
         pcall(function()
@@ -386,11 +358,11 @@ table.insert(ActiveConnections, LocalPlayer.Idled:Connect(function()
 end))
 
 -- ══════════════════════════════════════════════════════════════
--- MOTOR DE BLOQUEIO E FECHAMENTO DE POP-UPS EM SEGUNDO PLANO
+-- AUTO FECHAR POP-UPS DE ROBUX (CLICANDO FORA DO POP-UP)
 -- ══════════════════════════════════════════════════════════════
 local MarketplaceService = game:GetService("MarketplaceService")
 
--- 1. Hook Preventivo: Bloqueia chamadas de compra de Robux antes que o pop-up sequer apareça na tela
+-- 1. Hook preventivo para bloquear chamadas de compras de Robux
 pcall(function()
     if hookmetamethod then
         local oldNamecall
@@ -425,266 +397,156 @@ pcall(function()
             if Config.AutoClosePopups then return end
             return oldPGP(self, ...)
         end))
-        if MarketplaceService.PromptBundlePurchase then
-            local oldPBP = MarketplaceService.PromptBundlePurchase
-            hookfunction(MarketplaceService.PromptBundlePurchase, newcclosure(function(self, ...)
-                if Config.AutoClosePopups then return end
-                return oldPBP(self, ...)
-            end))
-        end
-        if MarketplaceService.PromptPremiumPurchase then
-            local oldPMP = MarketplaceService.PromptPremiumPurchase
-            hookfunction(MarketplaceService.PromptPremiumPurchase, newcclosure(function(self, ...)
-                if Config.AutoClosePopups then return end
-                return oldPMP(self, ...)
-            end))
-        end
     end
 end)
 
--- 2. Fechamento forçado e assíncrono de PurchasePrompt remanescente no CoreGui
-local function closeRobloxPurchasePrompt()
+-- 2. Detecção e fechamento clicando várias vezes FORA do pop-up
+local function dismissPopupsByClickingOutside()
+    if not Config.AutoClosePopups then return end
+    
     pcall(function()
-        local coreGui = game:GetService("CoreGui")
-        local vim = game:GetService("VirtualInputManager")
+        local vp = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+        -- Pontos seguros nos cantos extremos da tela (backdrop escuro, bem fora de qualquer popup central)
+        local outsidePoints = {
+            Vector2.new(30, 30),
+            Vector2.new(vp.X - 30, 30),
+            Vector2.new(30, vp.Y - 30),
+            Vector2.new(vp.X - 30, vp.Y - 30),
+            Vector2.new(45, 45)
+        }
         
-        local candidates = {}
-        local ppa = coreGui:FindFirstChild("PurchasePromptApp")
-        if ppa and ppa.Enabled then 
-            table.insert(candidates, ppa) 
-        end
-        local pp = coreGui:FindFirstChild("PurchasePrompt")
-        if pp and pp.Enabled then 
-            table.insert(candidates, pp) 
-        end
-        local rbxGui = coreGui:FindFirstChild("RobloxGui")
-        if rbxGui then
-            local rbxPP = rbxGui:FindFirstChild("PurchasePrompt")
-            if rbxPP and rbxPP.Enabled then 
-                table.insert(candidates, rbxPP) 
-            end
-        end
-        for _, ch in ipairs(coreGui:GetChildren()) do
-            local chName = ch.Name:lower()
-            if (chName:find("purchase") or chName:find("prompt")) and ch ~= ppa and ch ~= pp then
-                if ch:IsA("ScreenGui") and ch.Enabled then
-                    table.insert(candidates, ch)
+        local activePromptFound = false
+        
+        -- A) Verifica prompts do CoreGui (ex: Compra de Robux / Reanimação Sem Fim)
+        for _, name in ipairs({"PurchasePromptApp", "PurchasePrompt", "RobloxGui"}) do
+            local container = CoreGui:FindFirstChild(name)
+            if container and container.Enabled then
+                for _, desc in ipairs(container:GetDescendants()) do
+                    if desc:IsA("GuiObject") and desc.Visible and desc.AbsoluteSize.X > 60 and desc.AbsoluteSize.Y > 60 then
+                        local dName = desc.Name:lower()
+                        if dName:find("prompt") or dName:find("purchase") or dName:find("dialog") or dName:find("modal") or dName:find("alert") then
+                            activePromptFound = true
+                            break
+                        end
+                    end
+                end
+                if activePromptFound then
+                    pcall(function() container.Enabled = false end)
+                    break
                 end
             end
         end
         
-        local activePrompt = false
-        local buttonsToClick = {}
-        
-        for _, container in ipairs(candidates) do
-            for _, desc in ipairs(container:GetDescendants()) do
-                if desc:IsA("GuiObject") and desc.Visible and desc.AbsoluteSize.X > 40 and desc.AbsoluteSize.Y > 40 then
-                    activePrompt = true
-                    
-                    if desc:IsA("GuiButton") then
-                        local name = desc.Name:lower()
-                        local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
-                        
-                        -- NUNCA clica no botão de confirmação de compra de Robux!
-                        local isConfirmBuy = name:find("buy") or name:find("purchase") or name:find("confirm")
-                            or text:find("comprar") or text:find("buy") or text:find("purchase")
-                            
-                        if not isConfirmBuy then
-                            local isClose = false
-                            
-                            -- 1. Nome ou texto típico de fechar / cancelar / 'X'
-                            if name:find("close") or name:find("cancel") or name:find("dismiss") or name == "x" 
-                                or text == "x" or text == "✕" or text == "×" or text:find("cancel") or text:find("fechar") then
-                                isClose = true
-                            end
-                            
-                            -- 2. ImageButton com ícone de fechar / cross
-                            if not isClose and desc:IsA("ImageButton") then
-                                local img = desc.Image:lower()
-                                if img:find("close") or img:find("cancel") or img:find("cross") or img:find("x") then
-                                    isClose = true
-                                end
-                            end
-                            
-                            -- 3. Botão no cabeçalho superior do modal (exatamente onde fica o 'X' na janela)
-                            if not isClose then
-                                local parentFrame = desc.Parent
-                                if parentFrame and parentFrame:IsA("GuiObject") then
-                                    local relY = math.abs(desc.AbsolutePosition.Y - parentFrame.AbsolutePosition.Y)
-                                    if relY <= 70 and desc.AbsoluteSize.X <= 60 and desc.AbsoluteSize.Y <= 60 then
-                                        isClose = true
-                                    end
-                                end
-                            end
-                            
-                            if isClose then
-                                table.insert(buttonsToClick, desc)
-                            end
-                        end
+        -- B) Verifica popups in-game no PlayerGui (Revive, Ofertas de Robux, Reanimação Sem Fim)
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            local screenGui = pgui:FindFirstChild("ScreenGui")
+            if screenGui then
+                local revive = screenGui:FindFirstChild("Revive")
+                if revive and revive.Visible then
+                    activePromptFound = true
+                    revive.Visible = false
+                    local cancelBtn = revive:FindFirstChild("Cancel", true) or revive:FindFirstChild("Close", true) or revive:FindFirstChild("No", true)
+                    if cancelBtn and cancelBtn:IsA("GuiButton") and firesignal then
+                        firesignal(cancelBtn.Activated)
+                        firesignal(cancelBtn.MouseButton1Click)
                     end
                 end
             end
             
-            -- Oculta o container imediatamente
-            if activePrompt then
-                pcall(function() container.Enabled = false end)
-            end
-        end
-        
-        -- Clica nos botões de fechar instantaneamente (firesignal) sem nenhum yield
-        for _, btn in ipairs(buttonsToClick) do
-            pcall(function()
-                if firesignal then
-                    firesignal(btn.Activated)
-                    firesignal(btn.MouseButton1Click)
-                end
-            end)
-            -- Simulação de mouse em thread assíncrona isolada em segundo plano
-            pcall(function()
-                local center = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-                task.spawn(function()
-                    if vim then
-                        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
-                        task.wait(0.03)
-                        vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
-                    elseif VirtualUser then
-                        VirtualUser:CaptureController()
-                        VirtualUser:ClickButton1(center)
-                    end
-                end)
-            end)
-        end
-        
-        -- Envia tecla Escape apenas se um prompt ativo foi realmente encontrado, em thread assíncrona
-        if activePrompt and vim then
-            task.spawn(function()
-                vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-                task.wait(0.03)
-                vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-            end)
-        end
-    end)
-end
-
--- 3. Fechamento de Telas e Pop-ups In-Game (Revive, Ofertas, Promoções)
-local function closeGamePopups()
-    pcall(function()
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pgui then return end
-        
-        -- 1. Fecha Popup de Reanimação (Revive) nativo do jogo
-        local screenGui = pgui:FindFirstChild("ScreenGui")
-        if screenGui then
-            local revive = screenGui:FindFirstChild("Revive")
-            if revive and revive.Visible then
-                revive.Visible = false
-                local cancelBtn = revive:FindFirstChild("Cancel", true) 
-                    or revive:FindFirstChild("No", true) 
-                    or revive:FindFirstChild("Close", true)
-                if cancelBtn and cancelBtn:IsA("GuiButton") then
-                    pcall(function()
-                        if firesignal then
-                            firesignal(cancelBtn.Activated)
-                            firesignal(cancelBtn.MouseButton1Click)
-                        end
-                    end)
-                end
-            end
-        end
-        
-        -- 2. Fecha pop-ups de ofertas promocionais ou telas invasivas
-        for _, gui in ipairs(pgui:GetChildren()) do
-            if gui:IsA("ScreenGui") and gui.Enabled and not gui.Name:match("^SuperHeroEvolutionHub") then
-                for _, desc in ipairs(gui:GetDescendants()) do
-                    if desc:IsA("Frame") and desc.Visible and desc.AbsoluteSize.X > 150 and desc.AbsoluteSize.Y > 150 then
-                        local fName = desc.Name:lower()
-                        if (fName:find("offer") or fName:find("popup") or fName:find("prompt") 
-                            or fName:find("special") or fName:find("pack")) and not (fName:find("playtime") or fName:find("gift")) then
-                            for _, child in ipairs(desc:GetChildren()) do
-                                if child:IsA("GuiButton") and child.Visible then
-                                    local bName = child.Name:lower()
-                                    local bText = (child:IsA("TextButton") and child.Text:lower()) or ""
-                                    if bName:find("close") or bName:find("cancel") or bName:find("exit") or bName == "x"
-                                        or bText == "x" or bText == "✕" or bText == "×" or bText:find("fechar") then
-                                        pcall(function()
+            for _, gui in ipairs(pgui:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Enabled and not gui.Name:match("^SuperHeroEvolutionHub") then
+                    for _, desc in ipairs(gui:GetDescendants()) do
+                        if desc:IsA("Frame") and desc.Visible and desc.AbsoluteSize.X > 150 and desc.AbsoluteSize.Y > 150 then
+                            local fName = desc.Name:lower()
+                            if (fName:find("offer") or fName:find("popup") or fName:find("purchase") or fName:find("revive") or fName:find("special")) 
+                                and not (fName:find("playtime") or fName:find("gift")) then
+                                activePromptFound = true
+                                desc.Visible = false
+                                for _, b in ipairs(desc:GetChildren()) do
+                                    if b:IsA("GuiButton") and b.Visible then
+                                        local bName = b.Name:lower()
+                                        if bName:find("close") or bName:find("cancel") or bName:find("x") then
                                             if firesignal then
-                                                firesignal(child.Activated)
-                                                firesignal(child.MouseButton1Click)
+                                                firesignal(b.Activated)
+                                                firesignal(b.MouseButton1Click)
                                             end
-                                        end)
+                                        end
                                     end
                                 end
                             end
-                            desc.Visible = false
                         end
                     end
                 end
             end
         end
+        
+        -- C) Se um popup de Robux/compra foi detectado, clica algumas vezes FORA do popup no backdrop
+        if activePromptFound then
+            for i = 1, 3 do
+                local pt = outsidePoints[math.random(1, #outsidePoints)]
+                if VirtualInputManager then
+                    VirtualInputManager:SendMouseButtonEvent(pt.X, pt.Y, 0, true, game, 0)
+                    task.wait(0.03)
+                    VirtualInputManager:SendMouseButtonEvent(pt.X, pt.Y, 0, false, game, 0)
+                elseif VirtualUser then
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton1(pt)
+                end
+                task.wait(0.04)
+            end
+            
+            -- Envia Escape por segurança em thread separada
+            if VirtualInputManager then
+                task.spawn(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+                    task.wait(0.03)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+                end)
+            end
+        end
     end)
 end
 
--- 4. Motor em Segundo Plano (Totalmente Assíncrono e Não Bloqueante)
-local isClosingBackground = false
-
-local function runAutoClosePopups()
-    if not Config.AutoClosePopups then return end
-    if isClosingBackground then return end
-    isClosingBackground = true
-    
-    -- Executa completamente em segundo plano via task.spawn para nunca travar ou atrasar outras threads
-    task.spawn(function()
-        pcall(closeRobloxPurchasePrompt)
-        pcall(closeGamePopups)
-        isClosingBackground = false
-    end)
-end
-
--- Daemon em segundo plano que roda continuamente
+-- Daemon de verificação contínua em segundo plano
 spawnThread(function()
     while true do
         if Config.AutoClosePopups then
-            pcall(runAutoClosePopups)
+            pcall(dismissPopupsByClickingOutside)
         end
-        task.wait(0.12) -- Intervalo ágil em segundo plano (8 verificações por segundo)
+        task.wait(0.15)
     end
 end)
 
--- Gatilhos reativos em segundo plano por evento para fechamento instantâneo
+-- Gatilhos reativos em segundo plano para fechamento instantâneo
 pcall(function()
-    local coreGui = game:GetService("CoreGui")
-    local conn = coreGui.DescendantAdded:Connect(function(desc)
+    table.insert(ActiveConnections, CoreGui.DescendantAdded:Connect(function(desc)
         if Config.AutoClosePopups then
-            local p = desc.Parent
-            local pName = (p and p.Name:lower()) or ""
+            local pName = (desc.Parent and desc.Parent.Name:lower()) or ""
             if pName:find("purchase") or pName:find("prompt") then
-                task.spawn(runAutoClosePopups)
+                task.spawn(dismissPopupsByClickingOutside)
             end
         end
-    end)
-    table.insert(ActiveConnections, conn)
-end)
-
-pcall(function()
+    end))
+    
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
-        local conn = pgui.DescendantAdded:Connect(function(desc)
+        table.insert(ActiveConnections, pgui.DescendantAdded:Connect(function(desc)
             if Config.AutoClosePopups and (desc.Name == "Revive" or desc.Name:lower():find("offer")) then
-                task.spawn(runAutoClosePopups)
+                task.spawn(dismissPopupsByClickingOutside)
             end
-        end)
-        table.insert(ActiveConnections, conn)
+        end))
     end
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- MOTOR DE AUTO RESGATE DE RECOMPENSAS DE TEMPO DE JOGO
+-- AUTO RESGATE DE RECOMPENSAS DE TEMPO DE JOGO
 -- ══════════════════════════════════════════════════════════════
 local function claimPlaytimeRewards()
     if not Config.AutoClaimPlaytime then return end
     
     pcall(function()
-        -- 1. Varredura e ativação nos botões da interface (PlayerGui)
+        -- 1. Varre e ativa os 12 botões de Recompensa de Tempo na UI (PlayerGui)
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         if pgui then
             for _, gui in ipairs(pgui:GetChildren()) do
@@ -704,11 +566,9 @@ local function claimPlaytimeRewards()
                             local isClaimed = text:find("reivindicado") or text:find("claimed") or text:find("resgatado")
                             local isClaimable = (text:find("reivindica") or text:find("claim") or text:find("resgatar") or text:find("coletar") or text:find("pegar")) and not isClaimed
                             
-                            if isClaimable then
-                                if firesignal then
-                                    firesignal(desc.Activated)
-                                    firesignal(desc.MouseButton1Click)
-                                end
+                            if isClaimable and firesignal then
+                                firesignal(desc.Activated)
+                                firesignal(desc.MouseButton1Click)
                             end
                         end
                     end
@@ -716,7 +576,7 @@ local function claimPlaytimeRewards()
             end
         end
         
-        -- 2. Disparo de Remotes no ReplicatedStorage (Shared.Remotes e raiz)
+        -- 2. Dispara remotes de Playtime/Gift do jogo (1 a 12)
         local candidateFolders = {}
         if Remotes then table.insert(candidateFolders, Remotes) end
         local sharedObj = ReplicatedStorage:FindFirstChild("Shared")
@@ -724,8 +584,6 @@ local function claimPlaytimeRewards()
             local sRems = sharedObj:FindFirstChild("Remotes") or sharedObj:FindFirstChild("Events")
             if sRems and sRems ~= Remotes then table.insert(candidateFolders, sRems) end
         end
-        local rootRems = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:FindFirstChild("Events")
-        if rootRems and rootRems ~= Remotes then table.insert(candidateFolders, rootRems) end
         
         for _, f in ipairs(candidateFolders) do
             for _, rem in ipairs(f:GetChildren()) do
@@ -750,7 +608,6 @@ local function claimPlaytimeRewards()
     end)
 end
 
--- Thread contínua para auto-resgatar recompensas de tempo a cada 3.0 segundos
 spawnThread(function()
     while true do
         if Config.AutoClaimPlaytime then
@@ -760,7 +617,9 @@ spawnThread(function()
     end
 end)
 
--- Cache inteligente de mapa para eliminar quedas de FPS
+-- ══════════════════════════════════════════════════════════════
+-- DETECÇÃO DE MAPA, CHÃO E ESTÁGIOS
+-- ══════════════════════════════════════════════════════════════
 local cachedCurrentMap = nil
 local lastMapCheck = 0
 
@@ -796,30 +655,6 @@ local function getCurrentMap()
     cachedCurrentMap = bestMap or workspace:FindFirstChild("Map")
     return cachedCurrentMap
 end
-
-local function getStagesOptionsForWorld(worldId)
-    local list = {}
-    local wInfo = nil
-    for _, w in ipairs(WorldsData) do
-        if w.Id == worldId then wInfo = w; break end
-    end
-    if wInfo and wInfo.Min and wInfo.Max then
-        for i = wInfo.Min, wInfo.Max do
-            table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i})
-        end
-        return list
-    end
-    if worldId == "all" then
-        for i = 1, 150 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
-        return list
-    end
-    for i = 1, 15 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
-    return list
-end
-
--- ══════════════════════════════════════════════════════════════
--- ESTRUTURA DOS ESTÁGIOS & DETECÇÃO DE ALTURA DO CHÃO
--- ══════════════════════════════════════════════════════════════
 
 local function isGroundPart(hitPart)
     if not hitPart or not hitPart:IsA("BasePart") then return false end
@@ -873,13 +708,11 @@ local function getFloorHeightAt(x, z, referenceY, char)
     return nil
 end
 
--- Encontra o Pad Livre (Free) do estágio conforme a hierarquia do jogo: Stage > Pad > Free
 local function getStageFreePad(stageInstance)
     if not stageInstance then return nil end
     local padFolder = stageInstance:FindFirstChild("Pad")
     if not padFolder then return nil end
     
-    -- 1. Busca direta dentro de Pad.Free (suporta Model e sub-hierarquias)
     local free = padFolder:FindFirstChild("Free")
     if free then
         if free:IsA("BasePart") then return free end
@@ -887,11 +720,9 @@ local function getStageFreePad(stageInstance)
         if p then return p end
     end
     
-    -- 2. Busca direta por parte chamada Pad
     local direct = padFolder:FindFirstChild("Pad", true)
     if direct and direct:IsA("BasePart") then return direct end
     
-    -- 3. Busca por qualquer filho com 'free' no nome
     for _, child in ipairs(padFolder:GetChildren()) do
         if child.Name:lower():find("free") then
             if child:IsA("BasePart") then return child end
@@ -903,13 +734,11 @@ local function getStageFreePad(stageInstance)
     return padFolder:FindFirstChildWhichIsA("BasePart", true)
 end
 
--- Encontra a posição exata da área de combate / monstros de cada estágio, alinhada à altura do chão
 local function getStageCombatPosition(stageInstance)
     if not stageInstance then return nil end
     local char = LocalPlayer.Character
     local offset = getHumanoidFloorOffset(char)
     
-    -- 1. Posição média do folder EnemySpawns (exatamente onde os monstros ficam)
     local enemySpawns = stageInstance:FindFirstChild("EnemySpawns")
     if enemySpawns then
         local totalPos = Vector3.zero
@@ -931,7 +760,6 @@ local function getStageCombatPosition(stageInstance)
         end
     end
     
-    -- 2. Ponto médio entre o Spawn do jogador e o Gate / Pad
     local spawnObj = stageInstance:FindFirstChild("Spawn")
     local spawnPos = spawnObj and (spawnObj:IsA("BasePart") and spawnObj.Position or (spawnObj:IsA("Model") and spawnObj:GetPivot().Position))
     local gateObj = stageInstance:FindFirstChild("Gate") or stageInstance:FindFirstChild("Barrier")
@@ -963,7 +791,6 @@ local function getStageCombatPosition(stageInstance)
     return nil
 end
 
--- Encontra a saída / Gate do estágio alinhada à altura do chão para avançar sem tocar no Pad intermediário
 local function getStageGatePosition(stageInstance)
     if not stageInstance then return nil end
     local char = LocalPlayer.Character
@@ -987,21 +814,29 @@ local function getStageGatePosition(stageInstance)
     return nil
 end
 
--- Detecção otimizada de sacos de pancada de treino
+local function getStagesOptionsForWorld(worldId)
+    local list = {}
+    local wInfo = nil
+    for _, w in ipairs(WorldsData) do
+        if w.Id == worldId then wInfo = w; break end
+    end
+    if wInfo and wInfo.Min and wInfo.Max then
+        for i = wInfo.Min, wInfo.Max do
+            table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i})
+        end
+        return list
+    end
+    if worldId == "all" then
+        for i = 1, 150 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
+        return list
+    end
+    for i = 1, 15 do table.insert(list, {Id = "Stage" .. i, Name = "Estágio " .. i}) end
+    return list
+end
+
+-- Detecção de sacos de pancada de treino
 local cachedHitboxList = {}
 local lastHitboxMapCheck = 0
-
-local function isPaidOrRobuxZone(inst)
-    if not inst then return false end
-    local hb = inst:FindFirstChild("Hitbox")
-    local bb = hb and hb:FindFirstChild("TrainingZoneBillboard")
-    if bb then
-        local gp = bb:FindFirstChild("GamepassRequirement")
-        if gp and gp.Visible then return true end
-    end
-    if inst:GetAttribute("IsRobux") == true or inst:GetAttribute("GamepassId") then return true end
-    return false
-end
 
 local function getTrainingHitboxList()
     local now = os.clock()
@@ -1018,27 +853,17 @@ local function getTrainingHitboxList()
         if tz then table.insert(containers, tz) end
         table.insert(containers, curMap)
     end
-    for _, extra in ipairs({"Map", "MapTest"}) do
-        local m = workspace:FindFirstChild(extra)
-        if m and m ~= curMap then
-            local tz = m:FindFirstChild("TrainingZone") or m:FindFirstChild("TrainingZones") or m:FindFirstChild("Zones")
-            if tz then table.insert(containers, tz) end
-            table.insert(containers, m)
-        end
-    end
     
     for _, container in ipairs(containers) do
         if container then
             for _, child in ipairs(container:GetChildren()) do
-                if child:IsA("Model") and not isPaidOrRobuxZone(child) then
+                if child:IsA("Model") then
                     local hb = child:FindFirstChild("Hitbox") or child:FindFirstChild("PunchingBag")
                     if hb and hb:IsA("BasePart") then
                         table.insert(cachedHitboxList, hb)
                     end
                 elseif child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "PunchingBag") then
-                    if not isPaidOrRobuxZone(child) then
-                        table.insert(cachedHitboxList, child)
-                    end
+                    table.insert(cachedHitboxList, child)
                 end
             end
             if #cachedHitboxList > 0 then break end
@@ -1053,21 +878,19 @@ local initialLeaderRebirths = nil
 local totalWinsCollectedCount = 0
 local lastWinCollectedTick = 0
 
--- UI Elements Globais
 local ClickStatsCard = nil
 local RebirthStatsCard = nil
 local WinStatsCard = nil
 local EndlessStatsCard = nil
 local HeaderStats = nil
 local MiniStats = nil
+
 local ClickToggle = nil
 local RebirthToggle = nil
 local WinToggle = nil
-local ReturnToSpawnToggle = nil
 local EndlessToggle = nil
 local AntiAfkToggle = nil
 local AutoClosePopupsToggle = nil
-local EndlessReviveToggle = nil
 local PlaytimeToggle = nil
 
 pcall(function()
@@ -1122,12 +945,12 @@ pcall(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 1. MOTOR DO AUTO CLICK OTIMIZADO (ZERO QUEDA DE FPS)
+-- 1. MOTOR DO AUTO CLICK (100% EM SEGUNDO PLANO - ZERO CHAT INTERRUPT)
 -- ══════════════════════════════════════════════════════════════
 local currentTargetBag = nil
 local currentTargetEnemy = nil
 
--- Thread 1: Rastreador de alvos desacoplado (roda a cada 0.6s, NUNCA dentro do loop rápido)
+-- Thread 1: Rastreador de alvos desacoplado (roda a cada 0.6s)
 spawnThread(function()
     while true do
         if Config.FastClick then
@@ -1141,8 +964,6 @@ spawnThread(function()
                 end
                 
                 local pPos = hrp.Position
-                
-                -- 1. Verifica saco de pancada de treino próximo (< 35 studs)
                 local bestBag = nil
                 local hitboxes = getTrainingHitboxList()
                 for _, hb in ipairs(hitboxes) do
@@ -1153,7 +974,6 @@ spawnThread(function()
                 end
                 currentTargetBag = bestBag
                 
-                -- 2. Se não estiver perto de saco de treino, procura inimigo próximo
                 if not bestBag then
                     local bestEnemy = nil
                     local bestDist = 45
@@ -1199,10 +1019,9 @@ spawnThread(function()
     end
 end)
 
--- Thread 2: Disparo de Cliques Rápido e Ultra Leve (100% livre de varreduras pesadas de hierarchy)
+-- Thread 2: Disparo de cliques puramente via Remotes (SEM clicar na tela, chat 100% livre)
 spawnThread(function()
     local lastTouchInterest = 0
-    local lastVirtualClick = 0
     local lastStatsUpdate = 0
     
     while true do
@@ -1214,7 +1033,7 @@ spawnThread(function()
             if char and hum and hum.Health > 0 and hrp then
                 local now = os.clock()
                 
-                -- Aciona saco de pancada se estiver presente
+                -- Se houver saco de treino próximo, ativa hitbox e treino
                 if currentTargetBag and currentTargetBag.Parent then
                     if now - lastTouchInterest >= 1.5 then
                         lastTouchInterest = now
@@ -1231,21 +1050,12 @@ spawnThread(function()
                     end
                 end
                 
-                -- Dispara remotes nativos do jogo
+                -- Dispara Remotes nativos em segundo plano (não rouba foco do mouse/teclado nem atrapalha o chat)
                 if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                 if RemotePlayerClick then RemotePlayerClick:FireServer() end
                 
-                -- Clique virtual desacoplado para animar sem sobrecarregar a fila de UI
-                if now - lastVirtualClick >= 0.15 then
-                    lastVirtualClick = now
-                    pcall(function()
-                        VirtualUser:ClickButton1(Vector2.new(100, 100))
-                    end)
-                end
-                
                 Config.ClicksCount = Config.ClicksCount + 1
                 
-                -- Atualização visual controlada
                 if now - lastStatsUpdate >= 0.35 then
                     lastStatsUpdate = now
                     if ClickStatsCard and ClickStatsCard.Update then
@@ -1254,13 +1064,15 @@ spawnThread(function()
                 end
             end
         end
-        local cps = math.clamp(Config.ClickCPS or 10, 1, 50)
-        task.wait(1 / cps)
+        
+        -- Intervalo configurável pelo usuário: de 0.1s até 10.0s
+        local delayVal = math.clamp(Config.ClickDelay or 0.1, 0.1, 10.0)
+        task.wait(delayVal)
     end
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 2. MOTOR DO AUTO REBIRTH
+-- 2. MOTOR DO AUTO REBIRTH (AUTOMÁTICO EM SEGUNDO PLANO)
 -- ══════════════════════════════════════════════════════════════
 spawnThread(function()
     while true do
@@ -1286,17 +1098,15 @@ spawnThread(function()
                 end
             end)
         end
-        task.wait(Config.RebirthDelay or 1.5)
+        task.wait(Config.RebirthDelay or 1.0)
     end
 end)
 
 -- ══════════════════════════════════════════════════════════════
 -- 3. MOTOR DO AUTO WIN (DESLIZE, COMBATE E PARADA NO PAD ALVO)
 -- ══════════════════════════════════════════════════════════════
-
 local StabilizedPads = {}
 
--- Mantém o Pad 100% visível e travado no lugar ORIGINAL dele (sem teleportar e sem sumir por física/script)
 local function stabilizePadPart(part)
     if not part or not part:IsA("BasePart") or StabilizedPads[part] then return end
     StabilizedPads[part] = true
@@ -1311,7 +1121,6 @@ local function stabilizePadPart(part)
         part.AssemblyAngularVelocity = Vector3.zero
     end)
     
-    -- Se qualquer física ou script tentar mover ou lançar o pad para o limbo, trava no CFrame original
     local cConn = part:GetPropertyChangedSignal("CFrame"):Connect(function()
         if part and part.Parent then
             if (part.CFrame.Position - origCF.Position).Magnitude > 0.01 then
@@ -1325,12 +1134,9 @@ local function stabilizePadPart(part)
     end)
     table.insert(ActiveConnections, cConn)
     
-    -- Se o jogo tentar deixar o pad invisível (sumir ao pegar), mantém a transparência original
     local tConn = part:GetPropertyChangedSignal("Transparency"):Connect(function()
         if part and part.Parent and part.Transparency > origTrans then
-            pcall(function()
-                part.Transparency = origTrans
-            end)
+            pcall(function() part.Transparency = origTrans end)
         end
     end)
     table.insert(ActiveConnections, tConn)
@@ -1338,34 +1144,29 @@ end
 
 local function stabilizePad(pad)
     if not pad then return end
-    if pad:IsA("BasePart") then
-        stabilizePadPart(pad)
-    end
+    if pad:IsA("BasePart") then stabilizePadPart(pad) end
     local parent = pad.Parent
     if parent and (parent:IsA("Model") or parent:IsA("Folder")) then
         for _, desc in ipairs(parent:GetDescendants()) do
-            if desc:IsA("BasePart") then
-                stabilizePadPart(desc)
-            end
+            if desc:IsA("BasePart") then stabilizePadPart(desc) end
         end
     end
 end
 
--- Deslize contínuo em voo suave na altura do chão com no-clip total e sem teleporte
+-- Deslize contínuo suave na altura do chão com no-clip
 local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTargetY)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
     
-    local activeSpeed = Config.WinGlideSpeed or speed or 105
+    local activeSpeed = Config.WinGlideSpeed or speed or 110
     if hum then hum.WalkSpeed = activeSpeed end
     
     local targetPos = targetCFrame.Position
     local startPos = hrp.Position
     local offset = getHumanoidFloorOffset(char)
     
-    -- Ajusta o targetPos para a altura do chão caso tenha chão detectado (se não for destino exato como em cima do Pad)
     if not exactTargetY then
         local targetFloorY = getFloorHeightAt(targetPos.X, targetPos.Z, targetPos.Y, char)
         if targetFloorY then
@@ -1385,7 +1186,6 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
         return true
     end
     
-    -- No-clip contínuo e estabilização física durante o voo
     local ncConn = RunService.Stepped:Connect(function()
         if char then
             for _, part in ipairs(char:GetDescendants()) do
@@ -1400,7 +1200,6 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
         end
     end)
     
-    -- Previne queda ou tropeços durante o voo contínuo
     pcall(function()
         hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -1419,8 +1218,7 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
         hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp or not hum or hum.Health <= 0 then break end
         
-        -- Atualiza a velocidade dinamicamente se o usuário mover o slider
-        activeSpeed = Config.WinGlideSpeed or speed or 105
+        activeSpeed = Config.WinGlideSpeed or speed or 110
         if hum then hum.WalkSpeed = activeSpeed end
         
         local currentPos = hrp.Position
@@ -1451,7 +1249,6 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
             
             local targetY
             if exactTargetY then
-                -- Quando o alvo for o Pad: sobe suavemente para cima dele conforme se aproxima
                 local progress = 1.0 - math.clamp(horizDist / math.max(horizDistInit, 1), 0, 1)
                 local floorY = getFloorHeightAt(nextHoriz.X, nextHoriz.Z, currentPos.Y, char)
                 local baseGroundY = (floorY and (floorY + offset)) or currentPos.Y
@@ -1461,11 +1258,9 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
                 targetY = (floorY and (floorY + offset)) or currentPos.Y
             end
             
-            -- Interpolação suave no eixo Y para acompanhar degraus e rampas sem cortes
             local nextY = currentPos.Y + (targetY - currentPos.Y) * math.clamp(dt * 20, 0.18, 1.0)
             local nextPos = Vector3.new(nextHoriz.X, nextY, nextHoriz.Z)
             
-            -- Rotação suave na direção do movimento contínuo
             local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
             if flatDir.Magnitude > 0.01 then
                 local targetRot = CFrame.lookAt(nextPos, nextPos + flatDir)
@@ -1502,7 +1297,6 @@ local function waitForCharacterAlive(timeout)
     return char, char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildOfClass("Humanoid")
 end
 
--- Reseta o personagem e aguarda o renascimento completo no Spawn
 local function resetCharacterAndRecover()
     local oldChar = LocalPlayer.Character
     local oldHum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
@@ -1511,9 +1305,7 @@ local function resetCharacterAndRecover()
             oldHum.Health = 0
             oldHum:ChangeState(Enum.HumanoidStateType.Dead)
         end
-        if oldChar then
-            oldChar:BreakJoints()
-        end
+        if oldChar then oldChar:BreakJoints() end
     end)
     local t0 = os.clock()
     while os.clock() - t0 < 10 do
@@ -1526,28 +1318,14 @@ local function resetCharacterAndRecover()
     task.wait(0.5)
 end
 
--- Localiza com precisão o Spawn do Mapa ou do Stage 1
 local function getMapSpawnCFrame(curMap, stagesList)
     curMap = curMap or getCurrentMap()
     if not curMap then return nil end
     
-    -- 1. Procura por SpawnLocation oficial dentro do mapa
     local sp = curMap:FindFirstChildWhichIsA("SpawnLocation", true)
-    if sp then
-        return sp.CFrame + Vector3.new(0, 3.5, 0)
-    end
+    if sp then return sp.CFrame + Vector3.new(0, 3.5, 0) end
     
-    -- 2. Procura por partes de Spawn no mapa (fora dos estágios 2+)
     for _, name in ipairs({"SpawnLocation", "PlayerSpawn", "SpawnPoint", "LobbySpawn", "Spawn"}) do
-        for _, child in ipairs(curMap:GetChildren()) do
-            if child.Name:lower() == name:lower() then
-                if child:IsA("BasePart") then
-                    return child.CFrame + Vector3.new(0, 3.5, 0)
-                elseif child:IsA("Model") then
-                    return child:GetPivot() + Vector3.new(0, 3.5, 0)
-                end
-            end
-        end
         local found = curMap:FindFirstChild(name, true)
         if found then
             local pName = found.Parent and found.Parent.Name or ""
@@ -1561,50 +1339,17 @@ local function getMapSpawnCFrame(curMap, stagesList)
         end
     end
     
-    -- 3. Procura no Stage 1 (ponto de início dos estágios no mapa)
     local stage1 = (stagesList and stagesList[1] and stagesList[1].Stage)
-    if not stage1 then
-        local stgFolder = curMap:FindFirstChild("Stages")
-        stage1 = stgFolder and (stgFolder:FindFirstChild("Stage1") or stgFolder:FindFirstChild("Stage 1") or stgFolder:GetChildren()[1])
-    end
     if stage1 then
         local stgSpawn = stage1:FindFirstChild("Spawn") or stage1:FindFirstChild("SpawnLocation")
         if stgSpawn then
             local p = stgSpawn:IsA("BasePart") and stgSpawn.Position or (stgSpawn:IsA("Model") and stgSpawn:GetPivot().Position)
-            if p then
-                return CFrame.new(p + Vector3.new(0, 3.5, 0))
-            end
-        end
-        local combat1 = getStageCombatPosition(stage1)
-        if combat1 then
-            return CFrame.new(combat1)
+            if p then return CFrame.new(p + Vector3.new(0, 3.5, 0)) end
         end
     end
-    
-    -- 4. Posição da TrainingZone (Hitboxes de treino no lobby/spawn)
-    local tz = curMap:FindFirstChild("TrainingZone") or curMap:FindFirstChild("TrainingZones") or curMap:FindFirstChild("Zones")
-    if tz then
-        local p = tz:FindFirstChildWhichIsA("BasePart", true) or (tz:IsA("Model") and tz:GetPivot().Position)
-        if p then
-            local pos = typeof(p) == "Vector3" and p or p.Position
-            return CFrame.new(pos + Vector3.new(0, 3.5, 0))
-        end
-    end
-    
-    -- 5. Procura por qualquer SpawnLocation no Workspace próximo ao mapa
-    local mapPivot = curMap:IsA("Model") and curMap:GetPivot().Position or (curMap:FindFirstChildWhichIsA("BasePart", true) and curMap:FindFirstChildWhichIsA("BasePart", true).Position)
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj:IsA("SpawnLocation") then
-            if not mapPivot or (obj.Position - mapPivot).Magnitude < 1000 then
-                return obj.CFrame + Vector3.new(0, 3.5, 0)
-            end
-        end
-    end
-    
     return nil
 end
 
--- Retorna o personagem ao Spawn com suporte a Teleporte Instantâneo e Reset Seguro
 local function returnToSpawn(curMap, worldNum, stagesList)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1615,20 +1360,14 @@ local function returnToSpawn(curMap, worldNum, stagesList)
     end
     
     local method = Config.SpawnReturnMethod or "Teleport"
-    
     if method == "Reset" then
         resetCharacterAndRecover()
         return
     end
     
-    -- Método 1: Teleporte direto para o Spawn do mapa
     local spawnCF = getMapSpawnCFrame(curMap, stagesList)
-    
-    -- Dispara remote oficial de mudança de mundo se disponível para o mapa
     if worldNum and RemoteRequestWorldChange then
-        pcall(function()
-            RemoteRequestWorldChange:InvokeServer(worldNum)
-        end)
+        pcall(function() RemoteRequestWorldChange:InvokeServer(worldNum) end)
     end
     
     if spawnCF then
@@ -1649,23 +1388,18 @@ local function returnToSpawn(curMap, worldNum, stagesList)
     end
     
     task.wait(0.2)
-    
-    -- Validação: Se por qualquer motivo ainda estiver longe do spawn (> 150 studs) ou spawnCF não encontrado, executa reset de segurança
     char = LocalPlayer.Character
     hrp = char and char:FindFirstChild("HumanoidRootPart")
-    hum = char and char:FindFirstChildOfClass("Humanoid")
     if hrp and spawnCF then
         local distToSpawn = (hrp.Position - spawnCF.Position).Magnitude
-        if distToSpawn > 150 then
-            resetCharacterAndRecover()
-        end
+        if distToSpawn > 150 then resetCharacterAndRecover() end
     elseif not spawnCF then
         resetCharacterAndRecover()
     end
 end
 
--- Executa o farm do estágio com tempo de espera configurável e parada no Pad alvo na altura do chão
-local function farmStage(stage, isFinalTargetStage, stagesList)
+-- Farm individual de cada estágio
+local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
     if not stage or not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
     local char = LocalPlayer.Character
@@ -1673,37 +1407,10 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
     
-    -- 1. Garante que o jogador está no mapa correspondente
-    local stageMap = stage.Parent and stage.Parent.Parent
-    if stageMap and stageMap.Name:match("^Map") then
-        local curMap = getCurrentMap()
-        if not curMap or curMap.Name ~= stageMap.Name then
-            for _, w in ipairs(WorldsData) do
-                if w.MapName == stageMap.Name and w.WorldNum and RemoteRequestWorldChange then
-                    pcall(function() RemoteRequestWorldChange:InvokeServer(w.WorldNum) end)
-                    task.wait(1.5)
-                    break
-                end
-            end
-        end
-    end
-    
-    local stagePos = stage:IsA("Model") and stage:GetPivot().Position or (stage:FindFirstChildWhichIsA("BasePart", true) and stage:FindFirstChildWhichIsA("BasePart", true).Position)
-    if stagePos and LocalPlayer.RequestStreamAroundAsync then
-        pcall(function() LocalPlayer:RequestStreamAroundAsync(stagePos) end)
-    end
-    
-    -- 2. Posição da área de combate (EnemySpawns) alinhada à altura do chão
     local combatPos = getStageCombatPosition(stage)
     if not combatPos then return false, "nopos" end
     
-    char = LocalPlayer.Character
-    hrp = char and char:FindFirstChild("HumanoidRootPart")
-    hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
-    if hum then hum.WalkSpeed = Config.WinGlideSpeed or 105 end
-    
-    -- Desliza em voo contínuo na altura do chão até a área de combate do estágio
+    -- Desliza suavemente até o estágio
     local horizDistComb = (Vector3.new(hrp.Position.X - combatPos.X, 0, hrp.Position.Z - combatPos.Z)).Magnitude
     if horizDistComb > 1.2 then
         local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
@@ -1712,8 +1419,10 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- 3. Para no estágio e luta durante o Tempo de Espera configurado pelo Slider
-    local waitDuration = math.max(0.0, Config.CombatTime or 0.5)
+    -- Pausa configurável: só pausa se o estágio for a partir do 'PauseFromStage' configurado!
+    local shouldPauseAtThisStage = (stageNum >= (Config.PauseFromStage or 1))
+    local waitDuration = shouldPauseAtThisStage and math.clamp(Config.StageStopTime or 0.5, 0.1, 10.0) or 0.0
+    
     if waitDuration > 0 then
         local fightStart = os.clock()
         while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
@@ -1733,10 +1442,9 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- 4. Tratamento do Estágio
+    -- Tratamento do Pad
     if isFinalTargetStage then
-        -- Último estágio selecionado: o personagem desliza suavemente para cima do Pad (Free)
-        -- O pad fica 100% imóvel no lugar original dele (sem teleporte e sem sumir)
+        -- Apenas no estágio final selecionado (ex: 145) ele vai para o Pad!
         local targetPad = getStageFreePad(stage)
         if targetPad then
             stabilizePad(targetPad)
@@ -1751,23 +1459,9 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                 firetouchinterest(hrp, targetPad, 0)
                 task.wait(0.02)
                 firetouchinterest(hrp, targetPad, 1)
-                local foot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
-                if foot then
-                    firetouchinterest(foot, targetPad, 0)
-                    task.wait(0.02)
-                    firetouchinterest(foot, targetPad, 1)
-                end
             end
             
-            local initialWinTime = lastWinCollectedTick
             local initialWinCount = totalWinsCollectedCount
-            local initialLeaderWins = nil
-            pcall(function()
-                local ls = LocalPlayer:FindFirstChild("leaderstats")
-                local w = ls and ls:FindFirstChild("Wins")
-                if w then initialLeaderWins = w.Value end
-            end)
-            
             local padTouchStart = os.clock()
             while Config.AutoWin and not Config.AutoEndless and (os.clock() - padTouchStart < 1.0) do
                 char = LocalPlayer.Character
@@ -1785,25 +1479,13 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
                     firetouchinterest(hrp, targetPad, 1)
                 end
                 
-                local currentLeaderWins = nil
-                pcall(function()
-                    local ls = LocalPlayer:FindFirstChild("leaderstats")
-                    local w = ls and ls:FindFirstChild("Wins")
-                    if w then currentLeaderWins = w.Value end
-                end)
-                
-                if totalWinsCollectedCount > initialWinCount 
-                    or lastWinCollectedTick > initialWinTime 
-                    or (initialLeaderWins and currentLeaderWins and currentLeaderWins ~= initialLeaderWins) then
-                    break
-                end
+                if totalWinsCollectedCount > initialWinCount then break end
                 task.wait(0.05)
             end
-            
-            task.wait(0.2)
+            task.wait(0.15)
         end
     else
-        -- Estágio intermediário: desliza suavemente até o Gate na altura do chão
+        -- Estágio intermediário: desliza direto pelo Gate sem tocar no Pad intermediário
         local gatePos = getStageGatePosition(stage)
         if gatePos then
             local distToGate = (Vector3.new(hrp.Position.X - gatePos.X, 0, hrp.Position.Z - gatePos.Z)).Magnitude
@@ -1814,17 +1496,6 @@ local function farmStage(stage, isFinalTargetStage, stagesList)
     end
     
     return true, "ok"
-end
-
-local function ensurePlayerInWorld(worldNum, mapName)
-    if not worldNum or not RemoteRequestWorldChange then return end
-    pcall(function()
-        local currentMap = getCurrentMap()
-        if not currentMap or currentMap.Name ~= mapName then
-            RemoteRequestWorldChange:InvokeServer(worldNum)
-            task.wait(1.5)
-        end
-    end)
 end
 
 local function getStagesToFarm(stagesFolder, selectedStage)
@@ -1848,7 +1519,6 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     if not stagesFolder then return end
     local stagesList = getStagesToFarm(stagesFolder, selectedStage)
     if #stagesList == 0 then return end
-    
     if cancelCheck and cancelCheck() then return end
     if not Config.AutoWin or Config.AutoEndless then return end
     
@@ -1861,7 +1531,6 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         return
     end
     
-    -- Começa no estágio mais próximo ou Stage 1
     local startIndex = 1
     local minDist = math.huge
     for idx, item in ipairs(stagesList) do
@@ -1874,13 +1543,9 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
             end
         end
     end
+    if minDist > 250 then startIndex = 1 end
     
-    -- Se estiver longe de qualquer estágio intermediário, garante início do 1
-    if minDist > 250 then
-        startIndex = 1
-    end
-    
-    -- 1. VOO CONTÍNUO PRA FRENTE PELOS ESTÁGIOS NA ALTURA DO CHÃO
+    -- Desliza pelos estágios em ordem até o estágio alvo
     for i = startIndex, #stagesList do
         if cancelCheck and cancelCheck() then break end
         if not Config.AutoWin or Config.AutoEndless then break end
@@ -1896,7 +1561,7 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         
         local item = stagesList[i]
         local isSelectedStage = (i == #stagesList)
-        local success, reason = farmStage(item.Stage, isSelectedStage, stagesList)
+        local success, reason = farmStage(item.Stage, item.Num, isSelectedStage, stagesList)
         
         char = LocalPlayer.Character
         hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1908,13 +1573,10 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         end
         
         if isSelectedStage then
-            -- Vitória concluída no último estágio (Pad coletado)!
             if cancelCheck and cancelCheck() then break end
             if not Config.AutoWin or Config.AutoEndless then break end
             
             task.wait(0.15)
-            
-            -- Retorna ao Spawn após pegar o Pad
             if Config.ReturnToSpawnAfterWin then
                 local mapInst = (stagesFolder and stagesFolder.Parent) or getCurrentMap()
                 local wNum = nil
@@ -1928,13 +1590,13 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
                 end
                 returnToSpawn(mapInst, wNum, stagesList)
             end
-            
             task.wait(0.15)
             break
         end
     end
 end
 
+-- Thread Principal do Auto Win
 spawnThread(function()
     while true do
         if Config.AutoWin and not Config.AutoEndless then
@@ -1949,7 +1611,7 @@ spawnThread(function()
                         if not Config.AutoWin or Config.SelectedProgWorld ~= "all" then break end
                         local wData = WorldsData[wNum]
                         if wData and wData.MapName then
-                            ensurePlayerInWorld(wNum, wData.MapName)
+                            if RemoteRequestWorldChange then RemoteRequestWorldChange:InvokeServer(wNum) end
                             local mapInstance = workspace:FindFirstChild(wData.MapName)
                             local stagesFolder = mapInstance and mapInstance:FindFirstChild("Stages")
                             farmStagesSequence(stagesFolder, Config.SelectedProgStage, function()
@@ -1957,23 +1619,21 @@ spawnThread(function()
                             end)
                         end
                     end
-                elseif chosenWorld ~= "current" then
+                else
                     local wData = nil
                     for _, w in ipairs(WorldsData) do
                         if w.Id == chosenWorld then wData = w; break end
                     end
                     if wData and wData.WorldNum and wData.MapName then
-                        ensurePlayerInWorld(wData.WorldNum, wData.MapName)
+                        local curMap = getCurrentMap()
+                        if not curMap or curMap.Name ~= wData.MapName then
+                            if RemoteRequestWorldChange then
+                                RemoteRequestWorldChange:InvokeServer(wData.WorldNum)
+                                task.wait(1.5)
+                            end
+                        end
                         local mapInstance = workspace:FindFirstChild(wData.MapName)
                         local stagesFolder = mapInstance and mapInstance:FindFirstChild("Stages")
-                        farmStagesSequence(stagesFolder, Config.SelectedProgStage, function()
-                            return not Config.AutoWin or Config.SelectedProgWorld ~= chosenWorld
-                        end)
-                    end
-                else
-                    local curMap = getCurrentMap()
-                    local stagesFolder = curMap and curMap:FindFirstChild("Stages")
-                    if stagesFolder then
                         farmStagesSequence(stagesFolder, Config.SelectedProgStage, function()
                             return not Config.AutoWin or Config.SelectedProgWorld ~= chosenWorld
                         end)
@@ -1988,11 +1648,7 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 4. MOTOR DO AUTO ENDLESS (CO-OP SEM FIM)
 -- ══════════════════════════════════════════════════════════════
-local endlessDeathTick = 0
 local isDeadWaiting = false
-local wasInsideEndless = false
-local lastJoinAttempt = 0
-local outsideArenaStart = os.clock()
 local endlessEnteredCFrame = nil
 
 local function isInsideEndless()
@@ -2007,150 +1663,32 @@ local function isInsideEndless()
     local pPos = hrp.Position
     for _, center in pairs(EndlessArenaCenters) do
         local dist = (Vector3.new(pPos.X, 0, pPos.Z) - Vector3.new(center.X, 0, center.Z)).Magnitude
-        if dist < 250 then
-            return true
-        end
+        if dist < 250 then return true end
     end
     return false
 end
 
-local function getEndlessArenaCenter()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil, nil end
-    
-    local pPos = hrp.Position
-    local targetWorld = nil
-    if Config.EndlessWorld and Config.EndlessWorld ~= "current" then
-        targetWorld = tonumber(string.match(tostring(Config.EndlessWorld), "%d+"))
-    end
-    
-    if targetWorld and EndlessArenaCenters[targetWorld] then
-        local c = EndlessArenaCenters[targetWorld]
-        local d = (Vector3.new(pPos.X, 0, pPos.Z) - Vector3.new(c.X, 0, c.Z)).Magnitude
-        if d < 350 then
-            return c, targetWorld
-        end
-    end
-    
-    local closestCenter = nil
-    local closestDist = math.huge
-    local closestWorld = nil
-    for wNum, c in pairs(EndlessArenaCenters) do
-        local dist = (Vector3.new(pPos.X, 0, pPos.Z) - Vector3.new(c.X, 0, c.Z)).Magnitude
-        if dist < closestDist then
-            closestDist = dist
-            closestCenter = c
-            closestWorld = wNum
-        end
-    end
-    
-    if closestCenter and closestDist < 450 then
-        return closestCenter, closestWorld
-    end
-    
-    if targetWorld and EndlessArenaCenters[targetWorld] then
-        return EndlessArenaCenters[targetWorld], targetWorld
-    end
-    return closestCenter, closestWorld
-end
-
-local function onCharacterLoadedForEndless(char)
-    endlessEnteredCFrame = nil
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then
-        local diedConn = hum.Died:Connect(function()
-            if Config.AutoEndless then
-                endlessDeathTick = os.clock()
-                isDeadWaiting = true
-                wasInsideEndless = false
-                endlessEnteredCFrame = nil
-            end
-        end)
-        table.insert(ActiveConnections, diedConn)
-    end
-end
-
-if LocalPlayer.Character then onCharacterLoadedForEndless(LocalPlayer.Character) end
-local endlessCharConn = LocalPlayer.CharacterAdded:Connect(function(char) onCharacterLoadedForEndless(char) end)
-table.insert(ActiveConnections, endlessCharConn)
-
-local function getPortalWorld(p)
-    if not p then return nil end
-    local attrW = p:GetAttribute("World")
-    if type(attrW) == "number" then return attrW end
-    local parent = p.Parent
-    local map = parent and parent.Parent
-    if map then
-        if map.Name == "MapTest" then return 2 end
-        local num = tonumber(string.match(map.Name, "%d+"))
-        if num then return num end
-    end
-    return nil
-end
-
 local function getSelectedEndlessWorldNum()
-    local targetWorld = nil
-    if Config.EndlessWorld and Config.EndlessWorld ~= "current" then
-        targetWorld = tonumber(string.match(tostring(Config.EndlessWorld), "%d+"))
-    end
-    
-    if not targetWorld then
-        local curMap = getCurrentMap()
-        local curMapName = curMap and curMap.Name or "Map"
-        if curMapName == "Map" then
-            targetWorld = 2
-        elseif curMapName == "MapTest" then
-            targetWorld = 2
-        else
-            targetWorld = tonumber(string.match(curMapName, "%d+")) or 2
-        end
-    end
-    
-    if not targetWorld or targetWorld < 2 then targetWorld = 2 end
-    if targetWorld > 10 then targetWorld = 10 end
-    return targetWorld
+    if Config.EndlessWorld == "best" then return 10 end
+    local num = tonumber(string.match(tostring(Config.EndlessWorld or "10"), "%d+"))
+    return num or 10
 end
 
 local function getTargetEndlessPortal(targetWorldNum)
-    if not targetWorldNum then targetWorldNum = getSelectedEndlessWorldNum() end
+    targetWorldNum = targetWorldNum or getSelectedEndlessWorldNum()
     local targetMapName = (targetWorldNum == 2 and "MapTest") or ("Map" .. tostring(targetWorldNum))
     
     local mapObj = workspace:FindFirstChild(targetMapName)
     local endlessFolder = mapObj and mapObj:FindFirstChild("Endless")
     local portal = endlessFolder and endlessFolder:FindFirstChild("Portal")
-    if portal then
-        return portal, targetWorldNum
-    end
+    if portal then return portal, targetWorldNum end
     
     local portals = CollectionService:GetTagged("EndlessPortal")
     for _, p in ipairs(portals) do
-        if getPortalWorld(p) == targetWorldNum then
-            return p, targetWorldNum
-        end
+        local hb = p:FindFirstChild("Hitbox")
+        if hb and hb:IsA("BasePart") then return p, targetWorldNum end
     end
-    
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp and #portals > 0 then
-        local bestPortal = nil
-        local minDist = math.huge
-        for _, p in ipairs(portals) do
-            local hb = p:FindFirstChild("Hitbox")
-            if hb and hb:IsA("BasePart") then
-                local dist = (hb.Position - hrp.Position).Magnitude
-                if dist < minDist then
-                    minDist = dist
-                    bestPortal = p
-                end
-            end
-        end
-        if bestPortal then
-            return bestPortal, getPortalWorld(bestPortal) or targetWorldNum
-        end
-    end
-    
-    return portals[1], targetWorldNum
+    return nil, targetWorldNum
 end
 
 local function enterEndlessPortal()
@@ -2165,16 +1703,14 @@ local function enterEndlessPortal()
     
     local curMap = getCurrentMap()
     local curMapName = curMap and curMap.Name or "Map"
-    if Config.EndlessWorld and Config.EndlessWorld ~= "current" and curMapName ~= targetMapName then
-        if RemoteRequestWorldChange then
-            RemoteRequestWorldChange:InvokeServer(targetWorldNum)
-            task.wait(1.5)
-            local newChar, newHrp, newHum = waitForCharacterAlive(6)
-            if not newHrp or not newHum or newHum.Health <= 0 then return false end
-            char = newChar
-            hrp = newHrp
-            hum = newHum
-        end
+    if curMapName ~= targetMapName and RemoteRequestWorldChange then
+        RemoteRequestWorldChange:InvokeServer(targetWorldNum)
+        task.wait(1.5)
+        local newChar, newHrp, newHum = waitForCharacterAlive(6)
+        if not newHrp or not newHum or newHum.Health <= 0 then return false end
+        char = newChar
+        hrp = newHrp
+        hum = newHum
     end
     
     local portal, worldNum = getTargetEndlessPortal(targetWorldNum)
@@ -2194,6 +1730,7 @@ local function enterEndlessPortal()
     task.wait(0.2)
     if RemoteEndlessJoinRequest then RemoteEndlessJoinRequest:FireServer(worldNum) end
     task.wait(0.3)
+    
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         local screenGui = pgui and pgui:FindFirstChild("ScreenGui")
@@ -2213,137 +1750,91 @@ local function enterEndlessPortal()
     return isInsideEndless()
 end
 
+-- Thread Principal do Auto Endless
 spawnThread(function()
+    local lastJoinAttempt = 0
+    
     while true do
         if Config.AutoEndless then
             pcall(function()
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-                local reviveGui = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Revive")
-                local isReviveActive = (reviveGui and reviveGui.Visible)
-                local isDead = (not hum or hum.Health <= 0 or isReviveActive)
+                local isDead = (not hum or hum.Health <= 0)
                 
-                if isReviveActive and reviveGui then
-                    local cancelBtn = reviveGui:FindFirstChild("Cancel", true)
-                    if cancelBtn and cancelBtn:IsA("GuiButton") then
-                        pcall(function()
-                            if firesignal then
-                                firesignal(cancelBtn.Activated)
-                                firesignal(cancelBtn.MouseButton1Click)
-                            end
-                        end)
-                    end
-                    reviveGui.Visible = false
-                end
-                runAutoClosePopups()
-                
-                if isInsideEndless() then
-                    wasInsideEndless = true
-                end
-                
-                -- Se morreu ou se a tela de revive do jogo apareceu
-                if isDead and not isDeadWaiting then
-                    endlessDeathTick = os.clock()
-                    isDeadWaiting = true
-                    wasInsideEndless = false
-                    endlessEnteredCFrame = nil
-                end
-                
-                -- Delay estrito de 14 segundos pós-morte no Endless
-                if isDeadWaiting then
-                    endlessEnteredCFrame = nil
-                    outsideArenaStart = os.clock()
-                    local elapsed = os.clock() - endlessDeathTick
-                    local remaining = math.max(0, math.ceil(14.0 - elapsed))
-                    
-                    if elapsed < 14.0 then
-                        if EndlessStatsCard and EndlessStatsCard.Update then
-                            EndlessStatsCard.Update(string.format("Delay pós-morte: %ds...", remaining), Color3.fromRGB(255, 185, 55))
-                        end
-                        task.wait(0.25)
-                        return
-                    else
-                        -- Já passaram 14 segundos! Espera o personagem estar 100% vivo e pronto
-                        if hum and hum.Health > 0 and hrp and not isReviveActive and not isInsideEndless() then
-                            isDeadWaiting = false
-                            outsideArenaStart = os.clock()
-                            if EndlessStatsCard and EndlessStatsCard.Update then
-                                EndlessStatsCard.Update("Delay 14s concluído! Entrando...", Color3.fromRGB(56, 122, 255))
-                            end
-                        else
-                            task.wait(0.25)
-                            return
-                        end
-                    end
-                end
-                
-                if hum and hum.Health > 0 and hrp then
-                    if isInsideEndless() then
-                        wasInsideEndless = true
-                        outsideArenaStart = os.clock()
-                        
-                        if EndlessStatsCard and EndlessStatsCard.Update then
-                            EndlessStatsCard.Update("Dentro da Arena (Seguro)", Color3.fromRGB(46, 204, 113))
-                        end
-                        
-                        -- Focado 100% no Endless: segura a posição de entrada, zero velocidade, sem andar ou teleportar para boss/monstros
-                        if not endlessEnteredCFrame then
-                            local arenaCenter = getEndlessArenaCenter()
-                            if arenaCenter then
-                                endlessEnteredCFrame = CFrame.lookAt(hrp.Position, Vector3.new(arenaCenter.X, hrp.Position.Y, arenaCenter.Z))
-                            else
-                                endlessEnteredCFrame = hrp.CFrame
-                            end
-                            hrp.CFrame = endlessEnteredCFrame
-                        end
-                        
-                        if endlessEnteredCFrame then
-                            local currentPos = hrp.Position
-                            local distFromEntry = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(endlessEnteredCFrame.Position.X, 0, endlessEnteredCFrame.Position.Z)).Magnitude
-                            
-                            if distFromEntry > 2 then
-                                hrp.CFrame = endlessEnteredCFrame
-                            end
-                            
-                            hum:Move(Vector3.zero, false)
-                            hrp.Velocity = Vector3.zero
-                            hrp.RotVelocity = Vector3.zero
-                            if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.zero end
-                            if hrp.AssemblyAngularVelocity then hrp.AssemblyAngularVelocity = Vector3.zero end
-                        else
-                            hrp.Velocity = Vector3.zero
-                            hrp.RotVelocity = Vector3.zero
-                        end
-                    else
+                -- Se morreu dentro ou fora do Endless
+                if isDead then
+                    if not isDeadWaiting then
+                        isDeadWaiting = true
                         endlessEnteredCFrame = nil
                         if EndlessStatsCard and EndlessStatsCard.Update then
-                            EndlessStatsCard.Update("Entrando no Portal...", Color3.fromRGB(56, 122, 255))
+                            EndlessStatsCard.Update("Personagem morreu. Aguardando Respawn...", Color3.fromRGB(255, 185, 55))
                         end
-                        if Config.AutoHopBlocked and (os.clock() - outsideArenaStart > 60) then
-                            outsideArenaStart = os.clock()
-                            serverHop()
-                            return
+                    end
+                    task.wait(0.5)
+                    return
+                end
+                
+                -- Personagem vivo e pronto
+                if isDeadWaiting then
+                    task.wait(1.0)
+                    isDeadWaiting = false
+                end
+                
+                if isInsideEndless() then
+                    -- Dentro da Arena: FICA TOTALMENTE PARADO ATACANDO ATÉ MORRER
+                    if EndlessStatsCard and EndlessStatsCard.Update then
+                        EndlessStatsCard.Update("Dentro do Endless (Parado e Atacando)", Color3.fromRGB(46, 204, 113))
+                    end
+                    
+                    if not endlessEnteredCFrame then
+                        local wNum = getSelectedEndlessWorldNum()
+                        local c = EndlessArenaCenters[wNum]
+                        if c then
+                            endlessEnteredCFrame = CFrame.lookAt(hrp.Position, Vector3.new(c.X, hrp.Position.Y, c.Z))
+                        else
+                            endlessEnteredCFrame = hrp.CFrame
                         end
-                        if os.clock() - lastJoinAttempt > 2.0 then
-                            lastJoinAttempt = os.clock()
-                            enterEndlessPortal()
+                        hrp.CFrame = endlessEnteredCFrame
+                    end
+                    
+                    -- Trava a posição para ficar parado
+                    if endlessEnteredCFrame then
+                        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(endlessEnteredCFrame.Position.X, 0, endlessEnteredCFrame.Position.Z)).Magnitude
+                        if dist > 2 then
+                            hrp.CFrame = endlessEnteredCFrame
                         end
+                    end
+                    
+                    hum:Move(Vector3.zero, false)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    
+                    -- Fica batendo continuamente em segundo plano
+                    if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                    if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                else
+                    endlessEnteredCFrame = nil
+                    if EndlessStatsCard and EndlessStatsCard.Update then
+                        EndlessStatsCard.Update("Entrando no Portal do Endless...", Color3.fromRGB(56, 122, 255))
+                    end
+                    
+                    if os.clock() - lastJoinAttempt > 2.0 then
+                        lastJoinAttempt = os.clock()
+                        enterEndlessPortal()
                     end
                 end
             end)
         else
             isDeadWaiting = false
             endlessEnteredCFrame = nil
-            outsideArenaStart = os.clock()
         end
-        task.wait(0.15)
+        task.wait(0.12)
     end
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 5. DESIGN SYSTEM & INTERFACE VISUAL
+-- 5. INTERFACE VISUAL (EXATAMENTE COMO NAS IMAGENS)
 -- ══════════════════════════════════════════════════════════════
 local ScreenParent
 if gethui then
@@ -2361,26 +1852,26 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = ScreenParent
 
 local Themes = {
-    Background = Color3.fromRGB(15, 17, 24),
-    Header = Color3.fromRGB(20, 23, 33),
-    Sidebar = Color3.fromRGB(17, 20, 29),
-    Card = Color3.fromRGB(24, 28, 40),
-    CardBorder = Color3.fromRGB(42, 48, 70),
-    Accent1 = Color3.fromRGB(135, 80, 255),
-    Accent2 = Color3.fromRGB(56, 122, 255),
-    Text = Color3.fromRGB(245, 245, 252),
-    TextDim = Color3.fromRGB(150, 155, 175),
+    Background = Color3.fromRGB(15, 18, 28),
+    Header = Color3.fromRGB(20, 24, 36),
+    Sidebar = Color3.fromRGB(17, 20, 31),
+    Card = Color3.fromRGB(24, 29, 44),
+    CardBorder = Color3.fromRGB(38, 46, 68),
+    AccentBlue = Color3.fromRGB(56, 122, 255),
+    AccentBlueBg = Color3.fromRGB(25, 42, 75),
+    Text = Color3.fromRGB(245, 247, 255),
+    TextDim = Color3.fromRGB(150, 158, 180),
     Success = Color3.fromRGB(46, 204, 113),
     ToggleInactive = Color3.fromRGB(36, 42, 60),
     Warning = Color3.fromRGB(255, 185, 55),
     Error = Color3.fromRGB(255, 75, 75)
 }
 
--- MiniBar
+-- MiniBar quando minimizado
 local MiniBar = Instance.new("Frame")
 MiniBar.Name = "MiniBar"
-MiniBar.Size = UDim2.new(0, 390, 0, 54)
-MiniBar.Position = UDim2.new(0.5, -195, 0.04, 0)
+MiniBar.Size = UDim2.new(0, 380, 0, 50)
+MiniBar.Position = UDim2.new(0.5, -190, 0.04, 0)
 MiniBar.BackgroundColor3 = Themes.Background
 MiniBar.BorderSizePixel = 0
 MiniBar.Visible = false
@@ -2388,63 +1879,54 @@ MiniBar.Active = true
 MiniBar.Parent = ScreenGui
 
 local MiniBarCorner = Instance.new("UICorner")
-MiniBarCorner.CornerRadius = UDim.new(0, 27)
+MiniBarCorner.CornerRadius = UDim.new(0, 25)
 MiniBarCorner.Parent = MiniBar
 
 local MiniBarStroke = Instance.new("UIStroke")
 MiniBarStroke.Thickness = 1.5
-MiniBarStroke.Color = Themes.Accent2
+MiniBarStroke.Color = Themes.AccentBlue
 MiniBarStroke.Transparency = 0.2
 MiniBarStroke.Parent = MiniBar
 
-local AvatarImage = Instance.new("ImageLabel")
-AvatarImage.Name = "Avatar"
-AvatarImage.Size = UDim2.new(0, 42, 0, 42)
-AvatarImage.Position = UDim2.new(0, 6, 0.5, -21)
-AvatarImage.BackgroundColor3 = Themes.Card
-AvatarImage.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
-AvatarImage.Parent = MiniBar
+local AvatarMini = Instance.new("ImageLabel")
+AvatarMini.Name = "Avatar"
+AvatarMini.Size = UDim2.new(0, 38, 0, 38)
+AvatarMini.Position = UDim2.new(0, 6, 0.5, -19)
+AvatarMini.BackgroundColor3 = Themes.Card
+AvatarMini.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
+AvatarMini.Parent = MiniBar
 
-local AvatarCorner = Instance.new("UICorner")
-AvatarCorner.CornerRadius = UDim.new(1, 0)
-AvatarCorner.Parent = AvatarImage
-
-local AvatarStroke = Instance.new("UIStroke")
-AvatarStroke.Thickness = 1.5
-AvatarStroke.Color = Themes.Accent2
-AvatarStroke.Parent = AvatarImage
+local AvatarMiniCorner = Instance.new("UICorner")
+AvatarMiniCorner.CornerRadius = UDim.new(1, 0)
+AvatarMiniCorner.Parent = AvatarMini
 
 local MiniPlayerName = Instance.new("TextLabel")
-MiniPlayerName.Name = "PlayerName"
-MiniPlayerName.Size = UDim2.new(0, 160, 0, 16)
-MiniPlayerName.Position = UDim2.new(0, 56, 0, 9)
+MiniPlayerName.Size = UDim2.new(0, 150, 0, 16)
+MiniPlayerName.Position = UDim2.new(0, 52, 0, 8)
 MiniPlayerName.BackgroundTransparency = 1
-MiniPlayerName.Text = LocalPlayer.DisplayName
+MiniPlayerName.Text = "Marinho"
 MiniPlayerName.TextColor3 = Themes.Text
-MiniPlayerName.TextSize = 13
+MiniPlayerName.TextSize = 12
 MiniPlayerName.Font = Enum.Font.GothamBold
 MiniPlayerName.TextXAlignment = Enum.TextXAlignment.Left
-MiniPlayerName.TextTruncate = Enum.TextTruncate.AtEnd
 MiniPlayerName.Parent = MiniBar
 
 MiniStats = Instance.new("TextLabel")
-MiniStats.Name = "StatsLabel"
-MiniStats.Size = UDim2.new(0, 280, 0, 16)
-MiniStats.Position = UDim2.new(0, 56, 0, 28)
+MiniStats.Size = UDim2.new(0, 240, 0, 16)
+MiniStats.Position = UDim2.new(0, 52, 0, 26)
 MiniStats.BackgroundTransparency = 1
-MiniStats.Text = "FPS: 60 • Ping: 35 ms • Rebirths: 0"
+MiniStats.Text = "FPS: 60 • Ping: 30 ms • Rebirths: 0"
 MiniStats.TextColor3 = Themes.TextDim
-MiniStats.TextSize = 11
+MiniStats.TextSize = 10
 MiniStats.Font = Enum.Font.GothamMedium
 MiniStats.TextXAlignment = Enum.TextXAlignment.Left
 MiniStats.Parent = MiniBar
 
 local MiniExpandBtn = Instance.new("TextButton")
-MiniExpandBtn.Name = "ExpandBtn"
-MiniExpandBtn.Size = UDim2.new(0, 36, 0, 36)
-MiniExpandBtn.Position = UDim2.new(1, -44, 0.5, -18)
+MiniExpandBtn.Size = UDim2.new(0, 32, 0, 32)
+MiniExpandBtn.Position = UDim2.new(1, -40, 0.5, -16)
 MiniExpandBtn.BackgroundColor3 = Themes.Card
-MiniExpandBtn.Text = "[]"
+MiniExpandBtn.Text = "□"
 MiniExpandBtn.TextColor3 = Themes.Text
 MiniExpandBtn.TextSize = 13
 MiniExpandBtn.Font = Enum.Font.GothamBold
@@ -2453,27 +1935,21 @@ MiniExpandBtn.Active = true
 MiniExpandBtn.Parent = MiniBar
 
 local MiniExpandCorner = Instance.new("UICorner")
-MiniExpandCorner.CornerRadius = UDim.new(0, 18)
+MiniExpandCorner.CornerRadius = UDim.new(0, 16)
 MiniExpandCorner.Parent = MiniExpandBtn
-
-local MiniExpandStroke = Instance.new("UIStroke")
-MiniExpandStroke.Thickness = 1
-MiniExpandStroke.Color = Themes.CardBorder
-MiniExpandStroke.Parent = MiniExpandBtn
 
 -- Janela Principal
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 700, 0, 470)
-MainFrame.Position = UDim2.new(0.5, -350, 0.5, -235)
+MainFrame.Size = UDim2.new(0, 680, 0, 450)
+MainFrame.Position = UDim2.new(0.5, -340, 0.5, -225)
 MainFrame.BackgroundColor3 = Themes.Background
 MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = false
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 16)
+MainCorner.CornerRadius = UDim.new(0, 14)
 MainCorner.Parent = MainFrame
 
 local MainStroke = Instance.new("UIStroke")
@@ -2484,14 +1960,14 @@ MainStroke.Parent = MainFrame
 -- Topbar
 local Topbar = Instance.new("Frame")
 Topbar.Name = "Topbar"
-Topbar.Size = UDim2.new(1, 0, 0, 56)
+Topbar.Size = UDim2.new(1, 0, 0, 54)
 Topbar.BackgroundColor3 = Themes.Header
 Topbar.BorderSizePixel = 0
 Topbar.Active = true
 Topbar.Parent = MainFrame
 
 local TopbarCorner = Instance.new("UICorner")
-TopbarCorner.CornerRadius = UDim.new(0, 16)
+TopbarCorner.CornerRadius = UDim.new(0, 14)
 TopbarCorner.Parent = Topbar
 
 local TopbarLine = Instance.new("Frame")
@@ -2501,10 +1977,11 @@ TopbarLine.BackgroundColor3 = Themes.CardBorder
 TopbarLine.BorderSizePixel = 0
 TopbarLine.Parent = Topbar
 
+-- Avatar do Jogador com Borda Azul Circular
 local HeaderAvatar = Instance.new("ImageLabel")
 HeaderAvatar.Name = "HeaderAvatar"
-HeaderAvatar.Size = UDim2.new(0, 38, 0, 38)
-HeaderAvatar.Position = UDim2.new(0, 14, 0.5, -19)
+HeaderAvatar.Size = UDim2.new(0, 36, 0, 36)
+HeaderAvatar.Position = UDim2.new(0, 14, 0.5, -18)
 HeaderAvatar.BackgroundColor3 = Themes.Card
 HeaderAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
 HeaderAvatar.Parent = Topbar
@@ -2515,17 +1992,18 @@ HeaderAvatarCorner.Parent = HeaderAvatar
 
 local HeaderAvatarStroke = Instance.new("UIStroke")
 HeaderAvatarStroke.Thickness = 1.5
-HeaderAvatarStroke.Color = Themes.Accent2
+HeaderAvatarStroke.Color = Themes.AccentBlue
 HeaderAvatarStroke.Parent = HeaderAvatar
 
+-- Títulos Exatamente Conforme Imagem
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "Title"
-TitleLabel.Size = UDim2.new(0, 240, 0, 20)
-TitleLabel.Position = UDim2.new(0, 62, 0, 10)
+TitleLabel.Size = UDim2.new(0, 240, 0, 18)
+TitleLabel.Position = UDim2.new(0, 58, 0, 10)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Text = "⚡ SUPERHERO EVOLUTION"
 TitleLabel.TextColor3 = Themes.Text
-TitleLabel.TextSize = 14
+TitleLabel.TextSize = 13
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Topbar
@@ -2533,22 +2011,23 @@ TitleLabel.Parent = Topbar
 local SubtitleLabel = Instance.new("TextLabel")
 SubtitleLabel.Name = "Subtitle"
 SubtitleLabel.Size = UDim2.new(0, 240, 0, 16)
-SubtitleLabel.Position = UDim2.new(0, 62, 0, 30)
+SubtitleLabel.Position = UDim2.new(0, 58, 0, 28)
 SubtitleLabel.BackgroundTransparency = 1
-SubtitleLabel.Text = "Auto Edition | " .. LocalPlayer.DisplayName
+SubtitleLabel.Text = "Auto Edition | Marinho"
 SubtitleLabel.TextColor3 = Themes.TextDim
 SubtitleLabel.TextSize = 11
 SubtitleLabel.Font = Enum.Font.GothamMedium
 SubtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 SubtitleLabel.Parent = Topbar
 
+-- Pílula de Stats no Topbar
 HeaderStats = Instance.new("TextLabel")
 HeaderStats.Name = "HeaderStats"
-HeaderStats.Size = UDim2.new(0, 240, 0, 26)
-HeaderStats.Position = UDim2.new(1, -330, 0.5, -13)
+HeaderStats.Size = UDim2.new(0, 230, 0, 26)
+HeaderStats.Position = UDim2.new(1, -320, 0.5, -13)
 HeaderStats.BackgroundColor3 = Themes.Card
 HeaderStats.Text = "FPS: 60 • Ping: 30 ms • Rebirths: 0"
-HeaderStats.TextColor3 = Themes.Accent2
+HeaderStats.TextColor3 = Themes.AccentBlue
 HeaderStats.TextSize = 10
 HeaderStats.Font = Enum.Font.GothamBold
 HeaderStats.Parent = Topbar
@@ -2562,10 +2041,11 @@ HeaderStatsStroke.Thickness = 1
 HeaderStatsStroke.Color = Themes.CardBorder
 HeaderStatsStroke.Parent = HeaderStats
 
+-- Botões Minimizar e Fechar
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Name = "MinimizeBtn"
-MinimizeBtn.Size = UDim2.new(0, 32, 0, 32)
-MinimizeBtn.Position = UDim2.new(1, -76, 0.5, -16)
+MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+MinimizeBtn.Position = UDim2.new(1, -72, 0.5, -15)
 MinimizeBtn.BackgroundColor3 = Themes.Card
 MinimizeBtn.Text = "—"
 MinimizeBtn.TextColor3 = Themes.Text
@@ -2581,8 +2061,8 @@ MinimizeCorner.Parent = MinimizeBtn
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
-CloseBtn.Size = UDim2.new(0, 32, 0, 32)
-CloseBtn.Position = UDim2.new(1, -38, 0.5, -16)
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -36, 0.5, -15)
 CloseBtn.BackgroundColor3 = Themes.Card
 CloseBtn.Text = "X"
 CloseBtn.TextColor3 = Themes.Text
@@ -2602,7 +2082,7 @@ local isMinimized = false
 local function setMinimized(state)
     isMinimized = state
     if isMinimized then
-        local tweenOut = TweenService:Create(MainFrame, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        local tweenOut = TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
             Position = UDim2.new(MainFrame.Position.X.Scale, MainFrame.Position.X.Offset, 1.2, 0)
         })
         tweenOut:Play()
@@ -2610,22 +2090,22 @@ local function setMinimized(state)
             if isMinimized then
                 MainFrame.Visible = false
                 MiniBar.Visible = true
-                MiniBar.Position = UDim2.new(0.5, -195, -0.15, 0)
-                TweenService:Create(MiniBar, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                    Position = UDim2.new(0.5, -195, 0.04, 0)
+                MiniBar.Position = UDim2.new(0.5, -190, -0.15, 0)
+                TweenService:Create(MiniBar, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Position = UDim2.new(0.5, -190, 0.04, 0)
                 }):Play()
             end
         end)
     else
-        local tweenBarOut = TweenService:Create(MiniBar, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-            Position = UDim2.new(0.5, -195, -0.15, 0)
+        local tweenBarOut = TweenService:Create(MiniBar, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+            Position = UDim2.new(0.5, -190, -0.15, 0)
         })
         tweenBarOut:Play()
         tweenBarOut.Completed:Connect(function()
             MiniBar.Visible = false
             MainFrame.Visible = true
-            TweenService:Create(MainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Position = UDim2.new(0.5, -350, 0.5, -235)
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0.5, -340, 0.5, -225)
             }):Play()
         end)
     end
@@ -2635,7 +2115,6 @@ local function toggleMinimize() setMinimized(not isMinimized) end
 
 MinimizeBtn.Activated:Connect(function() setMinimized(true) end)
 MinimizeBtn.MouseButton1Click:Connect(function() setMinimized(true) end)
-
 MiniExpandBtn.Activated:Connect(function() setMinimized(false) end)
 MiniExpandBtn.MouseButton1Click:Connect(function() setMinimized(false) end)
 
@@ -2688,7 +2167,7 @@ end
 makeDraggable(MainFrame, Topbar)
 makeDraggable(MiniBar, MiniBar)
 
--- FPS, Ping e Rebirths na Topbar e MiniBar
+-- FPS, Ping e Rebirths em Tempo Real
 local fpsCount = 0
 local lastTime = tick()
 
@@ -2712,18 +2191,18 @@ table.insert(ActiveConnections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- Sidebar & Estrutura de Abas
+-- Sidebar & Estrutura das 5 Abas
 local Sidebar = Instance.new("Frame")
 Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 160, 1, -56)
-Sidebar.Position = UDim2.new(0, 0, 0, 56)
+Sidebar.Size = UDim2.new(0, 160, 1, -54)
+Sidebar.Position = UDim2.new(0, 0, 0, 54)
 Sidebar.BackgroundColor3 = Themes.Sidebar
 Sidebar.BorderSizePixel = 0
 Sidebar.Active = true
 Sidebar.Parent = MainFrame
 
 local SidebarCorner = Instance.new("UICorner")
-SidebarCorner.CornerRadius = UDim.new(0, 16)
+SidebarCorner.CornerRadius = UDim.new(0, 14)
 SidebarCorner.Parent = Sidebar
 
 local SidebarLayout = Instance.new("UIListLayout")
@@ -2739,8 +2218,8 @@ SidebarPadding.Parent = Sidebar
 
 local PageContainer = Instance.new("Frame")
 PageContainer.Name = "PageContainer"
-PageContainer.Size = UDim2.new(1, -160, 1, -56)
-PageContainer.Position = UDim2.new(0, 160, 0, 56)
+PageContainer.Size = UDim2.new(1, -160, 1, -54)
+PageContainer.Position = UDim2.new(0, 160, 0, 54)
 PageContainer.BackgroundTransparency = 1
 PageContainer.Parent = MainFrame
 
@@ -2777,7 +2256,7 @@ local function createTab(name, icon, layoutOrder)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
     page.ScrollBarThickness = 4
-    page.ScrollBarImageColor3 = Themes.Accent2
+    page.ScrollBarImageColor3 = Themes.AccentBlue
     page.Visible = false
     page.CanvasSize = UDim2.new(0, 0, 0, 0)
     page.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -2805,8 +2284,8 @@ local function createTab(name, icon, layoutOrder)
             if tabName == name then
                 TweenService:Create(b, TweenInfo.new(0.2), {
                     BackgroundTransparency = 0,
-                    BackgroundColor3 = Themes.Card,
-                    TextColor3 = Themes.Accent2
+                    BackgroundColor3 = Themes.AccentBlueBg,
+                    TextColor3 = Themes.AccentBlue
                 }):Play()
             else
                 TweenService:Create(b, TweenInfo.new(0.2), {
@@ -2825,33 +2304,30 @@ end
 -- Componentes Visuais Reutilizáveis
 local function createSectionHeader(parent, text)
     local frame = Instance.new("Frame")
-    frame.Name = "Header_" .. text:gsub("%W", "")
-    frame.Size = UDim2.new(1, 0, 0, 24)
+    frame.Size = UDim2.new(1, 0, 0, 22)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
     
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1, 0, 1, 0)
-    lbl.Position = UDim2.new(0, 2, 0, 2)
+    lbl.Position = UDim2.new(0, 2, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = string.upper(text)
-    lbl.TextColor3 = Themes.Accent2
-    lbl.TextSize = 12
+    lbl.TextColor3 = Themes.AccentBlue
+    lbl.TextSize = 11
     lbl.Font = Enum.Font.GothamBold
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = frame
-    
     return frame
 end
 
 local function createLabel(parent, text)
     local lbl = Instance.new("TextLabel")
-    lbl.Name = "Label_" .. text:gsub("%W", "")
-    lbl.Size = UDim2.new(1, 0, 0, 18)
+    lbl.Size = UDim2.new(1, 0, 0, 16)
     lbl.Position = UDim2.new(0, 2, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
-    lbl.TextColor3 = Color3.fromRGB(160, 168, 195)
+    lbl.TextColor3 = Themes.TextDim
     lbl.TextSize = 11
     lbl.Font = Enum.Font.GothamMedium
     lbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -2859,15 +2335,15 @@ local function createLabel(parent, text)
     return lbl
 end
 
-local function createInfoCard(parent, title, statusText, statusColor, forceColor)
+local function createInfoCard(parent, title, statusText, statusColor)
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, 0, 0, 48)
+    card.Size = UDim2.new(1, 0, 0, 44)
     card.BackgroundColor3 = Themes.Card
     card.BorderSizePixel = 0
     card.Parent = parent
     
     local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 10)
+    cardCorner.CornerRadius = UDim.new(0, 8)
     cardCorner.Parent = card
     
     local cardStroke = Instance.new("UIStroke")
@@ -2877,7 +2353,7 @@ local function createInfoCard(parent, title, statusText, statusColor, forceColor
     
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Size = UDim2.new(0.5, 0, 1, 0)
-    titleLbl.Position = UDim2.new(0, 14, 0, 0)
+    titleLbl.Position = UDim2.new(0, 12, 0, 0)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Text = title
     titleLbl.TextColor3 = Themes.Text
@@ -2887,29 +2363,29 @@ local function createInfoCard(parent, title, statusText, statusColor, forceColor
     titleLbl.Parent = card
     
     local statusBadge = Instance.new("TextLabel")
-    statusBadge.Size = UDim2.new(0, 200, 0, 30)
-    statusBadge.Position = UDim2.new(1, -214, 0.5, -15)
+    statusBadge.Size = UDim2.new(0, 190, 0, 26)
+    statusBadge.Position = UDim2.new(1, -202, 0.5, -13)
     statusBadge.BackgroundColor3 = Themes.Header
     statusBadge.Text = statusText
-    statusBadge.TextColor3 = forceColor or statusColor or Themes.Success
+    statusBadge.TextColor3 = statusColor or Themes.Success
     statusBadge.TextSize = 11
     statusBadge.Font = Enum.Font.GothamBold
     statusBadge.Parent = card
     
     local badgeCorner = Instance.new("UICorner")
-    badgeCorner.CornerRadius = UDim.new(0, 8)
+    badgeCorner.CornerRadius = UDim.new(0, 6)
     badgeCorner.Parent = statusBadge
     
     local badgeStroke = Instance.new("UIStroke")
     badgeStroke.Thickness = 1
-    badgeStroke.Color = forceColor or statusColor or Themes.Success
+    badgeStroke.Color = statusColor or Themes.Success
     badgeStroke.Transparency = 0.5
     badgeStroke.Parent = statusBadge
     
     return {
         Update = function(newText, newColor)
             statusBadge.Text = newText
-            local finalCol = forceColor or newColor or Themes.Success
+            local finalCol = newColor or Themes.Success
             statusBadge.TextColor3 = finalCol
             badgeStroke.Color = finalCol
         end
@@ -2918,8 +2394,7 @@ end
 
 local function createToggle(parent, title, defaultState, callback)
     local card = Instance.new("TextButton")
-    card.Name = title .. "_Card"
-    card.Size = UDim2.new(1, 0, 0, 44)
+    card.Size = UDim2.new(1, 0, 0, 42)
     card.BackgroundColor3 = Themes.Card
     card.BorderSizePixel = 0
     card.AutoButtonColor = false
@@ -2928,7 +2403,7 @@ local function createToggle(parent, title, defaultState, callback)
     card.Parent = parent
     
     local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 10)
+    cardCorner.CornerRadius = UDim.new(0, 8)
     cardCorner.Parent = card
     
     local cardStroke = Instance.new("UIStroke")
@@ -2938,7 +2413,7 @@ local function createToggle(parent, title, defaultState, callback)
     
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Size = UDim2.new(1, -70, 1, 0)
-    titleLbl.Position = UDim2.new(0, 14, 0, 0)
+    titleLbl.Position = UDim2.new(0, 12, 0, 0)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Text = title
     titleLbl.TextColor3 = Themes.Text
@@ -2948,8 +2423,8 @@ local function createToggle(parent, title, defaultState, callback)
     titleLbl.Parent = card
     
     local toggleBtn = Instance.new("Frame")
-    toggleBtn.Size = UDim2.new(0, 46, 0, 24)
-    toggleBtn.Position = UDim2.new(1, -58, 0.5, -12)
+    toggleBtn.Size = UDim2.new(0, 44, 0, 22)
+    toggleBtn.Position = UDim2.new(1, -54, 0.5, -11)
     toggleBtn.BackgroundColor3 = defaultState and Themes.Success or Themes.ToggleInactive
     toggleBtn.Parent = card
     
@@ -2958,8 +2433,8 @@ local function createToggle(parent, title, defaultState, callback)
     toggleCorner.Parent = toggleBtn
     
     local thumb = Instance.new("Frame")
-    thumb.Size = UDim2.new(0, 18, 0, 18)
-    thumb.Position = defaultState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+    thumb.Size = UDim2.new(0, 16, 0, 16)
+    thumb.Position = defaultState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
     thumb.BackgroundColor3 = Themes.Text
     thumb.BorderSizePixel = 0
     thumb.Parent = toggleBtn
@@ -2971,7 +2446,7 @@ local function createToggle(parent, title, defaultState, callback)
     local isEnabled = defaultState
     
     local function updateVisuals()
-        local targetPos = isEnabled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        local targetPos = isEnabled and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
         local targetColor = isEnabled and Themes.Success or Themes.ToggleInactive
         TweenService:Create(thumb, TweenInfo.new(0.2, Enum.EasingStyle.Quart), {Position = targetPos}):Play()
         TweenService:Create(toggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
@@ -2993,25 +2468,21 @@ local function createToggle(parent, title, defaultState, callback)
         Set = function(val, suppressCallback)
             isEnabled = val
             updateVisuals()
-            if not suppressCallback then
-                callback(isEnabled)
-            end
+            if not suppressCallback then callback(isEnabled) end
         end,
         Get = function() return isEnabled end
     }
 end
 
-local function createSlider(parent, title, minVal, maxVal, defaultVal, suffix, isFloat, callback)
+local function createSlider(parent, title, minVal, maxVal, defaultVal, unit, isFloat, callback)
     local card = Instance.new("Frame")
-    card.Name = title .. "_Slider"
     card.Size = UDim2.new(1, 0, 0, 56)
     card.BackgroundColor3 = Themes.Card
     card.BorderSizePixel = 0
-    card.Active = true
     card.Parent = parent
     
     local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 10)
+    cardCorner.CornerRadius = UDim.new(0, 8)
     cardCorner.Parent = card
     
     local cardStroke = Instance.new("UIStroke")
@@ -3020,8 +2491,8 @@ local function createSlider(parent, title, minVal, maxVal, defaultVal, suffix, i
     cardStroke.Parent = card
     
     local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size = UDim2.new(1, -90, 0, 24)
-    titleLbl.Position = UDim2.new(0, 14, 0, 6)
+    titleLbl.Size = UDim2.new(0.6, 0, 0, 20)
+    titleLbl.Position = UDim2.new(0, 12, 0, 6)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Text = title
     titleLbl.TextColor3 = Themes.Text
@@ -3030,125 +2501,134 @@ local function createSlider(parent, title, minVal, maxVal, defaultVal, suffix, i
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
     titleLbl.Parent = card
     
-    local valLbl = Instance.new("TextLabel")
-    valLbl.Size = UDim2.new(0, 70, 0, 24)
-    valLbl.Position = UDim2.new(1, -84, 0, 6)
-    valLbl.BackgroundTransparency = 1
-    valLbl.TextColor3 = Themes.Accent2
-    valLbl.TextSize = 13
-    valLbl.Font = Enum.Font.GothamBold
-    valLbl.TextXAlignment = Enum.TextXAlignment.Right
-    valLbl.Parent = card
+    local valueLbl = Instance.new("TextLabel")
+    valueLbl.Size = UDim2.new(0.35, 0, 0, 20)
+    valueLbl.Position = UDim2.new(0.65, -12, 0, 6)
+    valueLbl.BackgroundTransparency = 1
+    local initialText = isFloat and string.format("%.1f", defaultVal) or tostring(math.floor(defaultVal))
+    valueLbl.Text = initialText .. unit
+    valueLbl.TextColor3 = Themes.AccentBlue
+    valueLbl.TextSize = 12
+    valueLbl.Font = Enum.Font.GothamBold
+    valueLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valueLbl.Parent = card
     
     local track = Instance.new("TextButton")
-    track.Name = "SliderTrack"
-    track.Size = UDim2.new(1, -28, 0, 6)
-    track.Position = UDim2.new(0, 14, 0, 38)
-    track.BackgroundColor3 = Color3.fromRGB(30, 36, 52)
+    track.Size = UDim2.new(1, -24, 0, 8)
+    track.Position = UDim2.new(0, 12, 0, 36)
+    track.BackgroundColor3 = Themes.ToggleInactive
     track.BorderSizePixel = 0
     track.Text = ""
     track.AutoButtonColor = false
+    track.Active = true
     track.Parent = card
     
     local trackCorner = Instance.new("UICorner")
-    trackCorner.CornerRadius = UDim.new(0, 3)
+    trackCorner.CornerRadius = UDim.new(1, 0)
     trackCorner.Parent = track
     
     local fill = Instance.new("Frame")
-    fill.Name = "SliderFill"
-    fill.Size = UDim2.new(0, 0, 1, 0)
-    fill.BackgroundColor3 = Themes.Accent2
+    local ratio = math.clamp((defaultVal - minVal) / (maxVal - minVal), 0, 1)
+    fill.Size = UDim2.new(ratio, 0, 1, 0)
+    fill.BackgroundColor3 = Themes.AccentBlue
     fill.BorderSizePixel = 0
     fill.Parent = track
     
     local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 3)
+    fillCorner.CornerRadius = UDim.new(1, 0)
     fillCorner.Parent = fill
     
-    local currentVal = defaultVal
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0, 14, 0, 14)
+    thumb.Position = UDim2.new(1, -7, 0.5, -7)
+    thumb.BackgroundColor3 = Themes.Text
+    thumb.BorderSizePixel = 0
+    thumb.Parent = fill
     
-    local function updateValue(val, trigger)
-        if isFloat then
-            currentVal = math.clamp(math.floor(val * 10 + 0.5) / 10, minVal, maxVal)
-            valLbl.Text = string.format("%.1f%s", currentVal, suffix or "")
+    local thumbCorner = Instance.new("UICorner")
+    thumbCorner.CornerRadius = UDim.new(1, 0)
+    thumbCorner.Parent = thumb
+    
+    local isSliding = false
+    local currentValue = defaultVal
+    
+    local function updateValue(inputX)
+        local trackAbsPos = track.AbsolutePosition.X
+        local trackAbsSize = track.AbsoluteSize.X
+        local rawRatio = math.clamp((inputX - trackAbsPos) / trackAbsSize, 0, 1)
+        
+        local val = minVal + (maxVal - minVal) * rawRatio
+        if not isFloat then
+            val = math.floor(val + 0.5)
         else
-            currentVal = math.clamp(math.floor(val + 0.5), minVal, maxVal)
-            valLbl.Text = tostring(currentVal) .. (suffix or "")
+            val = math.floor(val * 10 + 0.5) / 10
         end
-        local pct = math.clamp((currentVal - minVal) / (maxVal - minVal), 0, 1)
-        fill.Size = UDim2.new(pct, 0, 1, 0)
-        if trigger ~= false and callback then
-            callback(currentVal)
-        end
-    end
-    
-    updateValue(defaultVal, false)
-    
-    local dragging = false
-    local function processInput(input)
-        local trackPos = track.AbsolutePosition.X
-        local trackWidth = track.AbsoluteSize.X
-        if trackWidth <= 0 then return end
-        local inputX = input.Position.X
-        local pct = math.clamp((inputX - trackPos) / trackWidth, 0, 1)
-        local rawVal = minVal + pct * (maxVal - minVal)
-        updateValue(rawVal, true)
+        currentValue = val
+        
+        fill.Size = UDim2.new(rawRatio, 0, 1, 0)
+        local txt = isFloat and string.format("%.1f", val) or tostring(val)
+        valueLbl.Text = txt .. unit
+        callback(val)
     end
     
     track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            processInput(input)
+            isSliding = true
+            updateValue(input.Position.X)
         end
     end)
     
-    local endedConn = UserInputService.InputEnded:Connect(function(input)
+    UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
+            isSliding = false
         end
     end)
-    table.insert(ActiveConnections, endedConn)
     
-    local changedConn = UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            processInput(input)
+    UserInputService.InputChanged:Connect(function(input)
+        if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateValue(input.Position.X)
         end
     end)
-    table.insert(ActiveConnections, changedConn)
     
     return {
-        SetValue = function(v) updateValue(v, true) end,
-        GetValue = function() return currentVal end
+        Set = function(val)
+            currentValue = val
+            local r = math.clamp((val - minVal) / (maxVal - minVal), 0, 1)
+            fill.Size = UDim2.new(r, 0, 1, 0)
+            local txt = isFloat and string.format("%.1f", val) or tostring(val)
+            valueLbl.Text = txt .. unit
+            callback(val)
+        end,
+        Get = function() return currentValue end
     }
 end
 
 local function createDropdown(parent, title, options, defaultId, onSelected)
-    local hasTitle = (title and title ~= "")
-    local closedHeight = hasTitle and 68 or 38
-    local openHeight = hasTitle and 218 or 188
+    local hasTitle = (title and #title > 0)
+    local closedHeight = hasTitle and 64 or 38
+    local openHeight = hasTitle and 210 or 180
     
     local container = Instance.new("Frame")
-    container.Name = (hasTitle and title or "Dropdown") .. "_Dropdown"
     container.Size = UDim2.new(1, 0, 0, closedHeight)
-    container.BackgroundColor3 = Themes.Card
+    container.BackgroundColor3 = hasTitle and Themes.Card or Color3.fromRGB(0, 0, 0)
+    container.BackgroundTransparency = hasTitle and 0 or 1
     container.BorderSizePixel = 0
     container.ClipsDescendants = true
-    container.Active = true
     container.Parent = parent
     
-    local containerCorner = Instance.new("UICorner")
-    containerCorner.CornerRadius = UDim.new(0, 10)
-    containerCorner.Parent = container
-    
-    local containerStroke = Instance.new("UIStroke")
-    containerStroke.Thickness = 1
-    containerStroke.Color = Themes.CardBorder
-    containerStroke.Parent = container
-    
     if hasTitle then
+        local contCorner = Instance.new("UICorner")
+        contCorner.CornerRadius = UDim.new(0, 8)
+        contCorner.Parent = container
+        
+        local contStroke = Instance.new("UIStroke")
+        contStroke.Thickness = 1
+        contStroke.Color = Themes.CardBorder
+        contStroke.Parent = container
+        
         local titleLbl = Instance.new("TextLabel")
         titleLbl.Size = UDim2.new(1, -24, 0, 16)
-        titleLbl.Position = UDim2.new(0, 14, 0, 6)
+        titleLbl.Position = UDim2.new(0, 12, 0, 6)
         titleLbl.BackgroundTransparency = 1
         titleLbl.Text = title
         titleLbl.TextColor3 = Themes.TextDim
@@ -3159,8 +2639,8 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
     end
     
     local selectBtn = Instance.new("TextButton")
-    selectBtn.Size = hasTitle and UDim2.new(1, -28, 0, 34) or UDim2.new(1, 0, 1, 0)
-    selectBtn.Position = hasTitle and UDim2.new(0, 14, 0, 26) or UDim2.new(0, 0, 0, 0)
+    selectBtn.Size = hasTitle and UDim2.new(1, -24, 0, 32) or UDim2.new(1, 0, 1, 0)
+    selectBtn.Position = hasTitle and UDim2.new(0, 12, 0, 24) or UDim2.new(0, 0, 0, 0)
     selectBtn.BackgroundColor3 = hasTitle and Themes.Header or Themes.Card
     selectBtn.Text = ""
     selectBtn.AutoButtonColor = false
@@ -3168,12 +2648,12 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
     selectBtn.Parent = container
     
     local selectCorner = Instance.new("UICorner")
-    selectCorner.CornerRadius = UDim.new(0, 8)
+    selectCorner.CornerRadius = UDim.new(0, 6)
     selectCorner.Parent = selectBtn
     
     local selectedText = Instance.new("TextLabel")
-    selectedText.Size = UDim2.new(1, -34, 1, 0)
-    selectedText.Position = UDim2.new(0, 14, 0, 0)
+    selectedText.Size = UDim2.new(1, -30, 1, 0)
+    selectedText.Position = UDim2.new(0, 10, 0, 0)
     selectedText.BackgroundTransparency = 1
     selectedText.TextColor3 = Themes.Text
     selectedText.TextSize = 12
@@ -3184,27 +2664,26 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
     
     local arrow = Instance.new("TextLabel")
     arrow.Size = UDim2.new(0, 24, 1, 0)
-    arrow.Position = UDim2.new(1, -30, 0, 0)
+    arrow.Position = UDim2.new(1, -28, 0, 0)
     arrow.BackgroundTransparency = 1
     arrow.Text = "▾"
-    arrow.TextColor3 = Themes.Accent2
+    arrow.TextColor3 = Themes.AccentBlue
     arrow.TextSize = 12
     arrow.Font = Enum.Font.GothamBold
     arrow.Parent = selectBtn
     
     local listScroll = Instance.new("ScrollingFrame")
-    listScroll.Name = "ListScroll"
-    listScroll.Size = hasTitle and UDim2.new(1, -28, 0, 140) or UDim2.new(1, -12, 0, 140)
-    listScroll.Position = hasTitle and UDim2.new(0, 14, 0, 68) or UDim2.new(0, 6, 0, 42)
+    listScroll.Size = hasTitle and UDim2.new(1, -24, 0, 136) or UDim2.new(1, -12, 0, 136)
+    listScroll.Position = hasTitle and UDim2.new(0, 12, 0, 62) or UDim2.new(0, 6, 0, 40)
     listScroll.BackgroundColor3 = Themes.Background
     listScroll.BorderSizePixel = 0
     listScroll.ScrollBarThickness = 4
-    listScroll.ScrollBarImageColor3 = Themes.Accent2
+    listScroll.ScrollBarImageColor3 = Themes.AccentBlue
     listScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
     listScroll.Parent = container
     
     local listCorner = Instance.new("UICorner")
-    listCorner.CornerRadius = UDim.new(0, 8)
+    listCorner.CornerRadius = UDim.new(0, 6)
     listCorner.Parent = listScroll
     
     local listLayout = Instance.new("UIListLayout")
@@ -3213,10 +2692,10 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
     listLayout.Parent = listScroll
     
     local listPadding = Instance.new("UIPadding")
-    listPadding.PaddingTop = UDim.new(0, 6)
-    listPadding.PaddingBottom = UDim.new(0, 6)
-    listPadding.PaddingLeft = UDim.new(0, 6)
-    listPadding.PaddingRight = UDim.new(0, 6)
+    listPadding.PaddingTop = UDim.new(0, 4)
+    listPadding.PaddingBottom = UDim.new(0, 4)
+    listPadding.PaddingLeft = UDim.new(0, 4)
+    listPadding.PaddingRight = UDim.new(0, 4)
     listPadding.Parent = listScroll
     
     local currentSelected = defaultId
@@ -3240,11 +2719,11 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
         
         for _, opt in ipairs(options) do
             local itemBtn = Instance.new("TextButton")
-            itemBtn.Size = UDim2.new(1, 0, 0, 30)
+            itemBtn.Size = UDim2.new(1, 0, 0, 28)
             itemBtn.BackgroundColor3 = (opt.Id == currentSelected) and Themes.Card or Themes.Header
             itemBtn.Text = "  " .. opt.Name
-            itemBtn.TextColor3 = (opt.Id == currentSelected) and Themes.Accent2 or Themes.Text
-            itemBtn.TextSize = 12
+            itemBtn.TextColor3 = (opt.Id == currentSelected) and Themes.AccentBlue or Themes.Text
+            itemBtn.TextSize = 11
             itemBtn.Font = Enum.Font.GothamMedium
             itemBtn.TextXAlignment = Enum.TextXAlignment.Left
             itemBtn.TextTruncate = Enum.TextTruncate.AtEnd
@@ -3256,20 +2735,12 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
             itemCorner.CornerRadius = UDim.new(0, 6)
             itemCorner.Parent = itemBtn
             
-            itemBtn.MouseEnter:Connect(function()
-                TweenService:Create(itemBtn, TweenInfo.new(0.15), {BackgroundColor3 = Themes.CardBorder}):Play()
-            end)
-            itemBtn.MouseLeave:Connect(function()
-                local c = (opt.Id == currentSelected) and Themes.Card or Themes.Header
-                TweenService:Create(itemBtn, TweenInfo.new(0.15), {BackgroundColor3 = c}):Play()
-            end)
-            
             itemBtn.Activated:Connect(function()
                 currentSelected = opt.Id
                 selectedText.Text = opt.Name
                 isOpen = false
                 arrow.Text = "▾"
-                TweenService:Create(container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                TweenService:Create(container, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                     Size = UDim2.new(1, 0, 0, closedHeight)
                 }):Play()
                 if onSelected then onSelected(opt.Id, opt.Name) end
@@ -3281,17 +2752,11 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
     
     selectBtn.Activated:Connect(function()
         isOpen = not isOpen
-        if isOpen then
-            arrow.Text = "▴"
-            TweenService:Create(container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(1, 0, 0, openHeight)
-            }):Play()
-        else
-            arrow.Text = "▾"
-            TweenService:Create(container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(1, 0, 0, closedHeight)
-            }):Play()
-        end
+        arrow.Text = isOpen and "▴" or "▾"
+        local targetH = isOpen and openHeight or closedHeight
+        TweenService:Create(container, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, 0, 0, targetH)
+        }):Play()
     end)
     
     return {
@@ -3312,19 +2777,6 @@ local function createDropdown(parent, title, options, defaultId, onSelected)
                         break
                     end
                 end
-            else
-                local found = false
-                for _, opt in ipairs(options) do
-                    if opt.Id == currentSelected then
-                        found = true
-                        selectedText.Text = opt.Name
-                        break
-                    end
-                end
-                if not found and #options > 0 then
-                    currentSelected = options[1].Id
-                    selectedText.Text = options[1].Name
-                end
             end
             renderItems()
         end
@@ -3333,8 +2785,8 @@ end
 
 local function createButton(parent, text, isBlueAccent, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 42)
-    btn.BackgroundColor3 = isBlueAccent and Themes.Accent2 or Themes.Card
+    btn.Size = UDim2.new(1, 0, 0, 38)
+    btn.BackgroundColor3 = isBlueAccent and Themes.AccentBlue or Themes.Card
     btn.Text = text
     btn.TextColor3 = Themes.Text
     btn.TextSize = 12
@@ -3344,25 +2796,18 @@ local function createButton(parent, text, isBlueAccent, callback)
     btn.Parent = parent
     
     local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 10)
+    btnCorner.CornerRadius = UDim.new(0, 8)
     btnCorner.Parent = btn
     
     local btnStroke = Instance.new("UIStroke")
     btnStroke.Thickness = 1
-    btnStroke.Color = isBlueAccent and Themes.Accent2 or Themes.CardBorder
+    btnStroke.Color = isBlueAccent and Themes.AccentBlue or Themes.CardBorder
     btnStroke.Parent = btn
-    
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.2}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
-    end)
     
     local lastClick = 0
     local function onClick()
         local now = tick()
-        if now - lastClick < 0.15 then return end
+        if now - lastClick < 0.2 then return end
         lastClick = now
         callback()
     end
@@ -3372,7 +2817,7 @@ local function createButton(parent, text, isBlueAccent, callback)
 end
 
 -- ══════════════════════════════════════════════════════════════
--- 6. CRIAÇÃO DAS 4 ABAS SOLICITADAS (+ CONFIG)
+-- CRIAÇÃO DAS 5 ABAS SOLICITADAS
 -- ══════════════════════════════════════════════════════════════
 local ClickTab = createTab("Auto Click", "⚡", 1)
 local RebirthTab = createTab("Auto Rebirth", "🔄", 2)
@@ -3381,43 +2826,38 @@ local EndlessTab = createTab("Auto Endless", "🌀", 4)
 local ConfigTab = createTab("Config", "⚙️", 5)
 
 -- ── ABA 1: AUTO CLICK ──────────────────────────────────────────
-createSectionHeader(ClickTab, "⚡ AUTO CLICK (OTIMIZADO - ZERO LAG)")
+createSectionHeader(ClickTab, "⚡ AUTO CLICK (SEGUNDO PLANO - ZERO CHAT INTERRUPT)")
 
-ClickStatsCard = createInfoCard(ClickTab, "📊 Cliques Efetuados", "Clicks: 0", Themes.Accent2)
+ClickStatsCard = createInfoCard(ClickTab, "📊 Cliques Efetuados", "Clicks: 0", Themes.AccentBlue)
 
 ClickToggle = createToggle(ClickTab, "Ativar Auto Click", Config.FastClick, function(val)
     Config.FastClick = val
     saveConfig()
 end)
 
-createSlider(ClickTab, "Velocidade de Cliques (CPS)", 1, 50, Config.ClickCPS, " CPS", false, function(val)
-    Config.ClickCPS = val
+createSlider(ClickTab, "Velocidade / Intervalo por Clique", 0.1, 10.0, Config.ClickDelay, "s por clique", true, function(val)
+    Config.ClickDelay = val
     saveConfig()
 end)
 
 -- ── ABA 2: AUTO REBIRTH ────────────────────────────────────────
 createSectionHeader(RebirthTab, "🔄 AUTO REBIRTH")
 
-RebirthStatsCard = createInfoCard(RebirthTab, "📊 Estatísticas de Rebirth", "Sessão: 0 | Total: 0", Themes.Accent2)
+RebirthStatsCard = createInfoCard(RebirthTab, "📊 Estatísticas de Rebirth", "Sessão: 0 | Total: 0", Themes.AccentBlue)
 
-RebirthToggle = createToggle(RebirthTab, "Ativar Auto Rebirth", Config.AutoRebirth, function(val)
+RebirthToggle = createToggle(RebirthTab, "Ativar Auto Rebirth Automático", Config.AutoRebirth, function(val)
     Config.AutoRebirth = val
     saveConfig()
 end)
 
-createSlider(RebirthTab, "Intervalo de Rebirth", 0.5, 5.0, Config.RebirthDelay, "s", true, function(val)
-    Config.RebirthDelay = val
-    saveConfig()
-end)
-
 -- ── ABA 3: AUTO WIN ────────────────────────────────────────────
-createSectionHeader(WinTab, "🏆 PROGRESSÃO & ESTÁGIOS")
+createSectionHeader(WinTab, "🏆 PROGRESSÃO & ESTÁGIOS (AUTO WIN)")
 
-WinStatsCard = createInfoCard(WinTab, "📊 Vitórias Coletadas", "Vitórias: 0", Themes.Accent2)
+WinStatsCard = createInfoCard(WinTab, "📊 Vitórias Coletadas", "Vitórias: 0", Themes.AccentBlue)
 
 createLabel(WinTab, "1. Selecione o Mundo:")
-
 local stageProgDropdown = nil
+local pauseStageDropdown = nil
 
 local worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.SelectedProgWorld, function(worldId)
     Config.SelectedProgWorld = worldId
@@ -3430,14 +2870,13 @@ local worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.Selected
     saveConfig()
 end)
 
-createLabel(WinTab, "2. Até qual Estágio Progredir / Vencer:")
-
+createLabel(WinTab, "2. Estágio Alvo (Parar no Pad e Pegar Vitória):")
 stageProgDropdown = createDropdown(WinTab, "", getStagesOptionsForWorld(Config.SelectedProgWorld), Config.SelectedProgStage, function(stageId)
     Config.SelectedProgStage = stageId
     saveConfig()
 end)
 
-WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.AutoWin, function(val)
+WinToggle = createToggle(WinTab, "Ativar Auto Win (Deslizar até Estágio Alvo)", Config.AutoWin, function(val)
     Config.AutoWin = val
     if val then
         Config.AutoEndless = false
@@ -3446,7 +2885,22 @@ WinToggle = createToggle(WinTab, "Auto Progressão Completa (Auto Win)", Config.
     saveConfig()
 end)
 
-ReturnToSpawnToggle = createToggle(WinTab, "Voltar ao Spawn Após Pegar o Pad", Config.ReturnToSpawnAfterWin, function(val)
+createSlider(WinTab, "Velocidade de Deslize do Personagem", 40, 350, Config.WinGlideSpeed, " Speed", false, function(val)
+    Config.WinGlideSpeed = val
+    saveConfig()
+end)
+
+createSlider(WinTab, "Pausar para Lutar a partir do Estágio", 1, 150, Config.PauseFromStage, " (Estágio)", false, function(val)
+    Config.PauseFromStage = val
+    saveConfig()
+end)
+
+createSlider(WinTab, "Tempo de Parada em Cada Estágio", 0.1, 10.0, Config.StageStopTime, "s", true, function(val)
+    Config.StageStopTime = val
+    saveConfig()
+end)
+
+createToggle(WinTab, "Voltar ao Spawn Após Pegar o Pad", Config.ReturnToSpawnAfterWin, function(val)
     Config.ReturnToSpawnAfterWin = val
     saveConfig()
 end)
@@ -3459,29 +2913,18 @@ createDropdown(WinTab, "", {
     saveConfig()
 end)
 
-createSlider(WinTab, "Tempo de Espera por Estágio", 0.0, 5.0, Config.CombatTime, "s", true, function(val)
-    Config.CombatTime = val
-    saveConfig()
-end)
-
-createSlider(WinTab, "Velocidade de Deslize (Glide)", 40, 350, Config.WinGlideSpeed, " Speed", false, function(val)
-    Config.WinGlideSpeed = val
-    saveConfig()
-end)
-
 -- ── ABA 4: AUTO ENDLESS ────────────────────────────────────────
 createSectionHeader(EndlessTab, "🌀 CO-OP SEM FIM (ENDLESS)")
 
-EndlessStatsCard = createInfoCard(EndlessTab, "📊 Status do CO-OP", "Fora da Arena", Themes.Accent2)
+EndlessStatsCard = createInfoCard(EndlessTab, "📊 Status do Endless", "Fora da Arena", Themes.AccentBlue)
 
-createLabel(EndlessTab, "Selecione o Mundo do CO-OP:")
-
+createLabel(EndlessTab, "Selecione o Mundo do Endless:")
 createDropdown(EndlessTab, "", EndlessWorldsList, Config.EndlessWorld, function(worldId)
     Config.EndlessWorld = worldId
     saveConfig()
 end)
 
-EndlessToggle = createToggle(EndlessTab, "Auto CO-OP Sem Fim", Config.AutoEndless, function(val)
+EndlessToggle = createToggle(EndlessTab, "Ativar Auto Endless (Ficar Parado até Morrer)", Config.AutoEndless, function(val)
     Config.AutoEndless = val
     if val then
         Config.AutoWin = false
@@ -3490,35 +2933,20 @@ EndlessToggle = createToggle(EndlessTab, "Auto CO-OP Sem Fim", Config.AutoEndles
     saveConfig()
 end)
 
-createToggle(EndlessTab, "Auto Hop se Bloqueado (+1 min)", Config.AutoHopBlocked, function(val)
-    Config.AutoHopBlocked = val
-    saveConfig()
-end)
-
-EndlessReviveToggle = createToggle(EndlessTab, "Auto Fechar Reanimação (Segundo Plano)", Config.AutoClosePopups, function(val)
-    Config.AutoClosePopups = val
-    if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then
-        AutoClosePopupsToggle.Set(val, true)
-    end
-    saveConfig()
-end)
-
-createSectionHeader(ConfigTab, "⚙️ CONFIGURAÇÕES GERAIS")
+-- ── ABA 5: CONFIG ──────────────────────────────────────────────
+createSectionHeader(ConfigTab, "⚙️ UTILITÁRIOS & SEGUNDO PLANO")
 
 AntiAfkToggle = createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
     Config.AntiAfk = val
     saveConfig()
 end)
 
-AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups (Segundo Plano)", Config.AutoClosePopups, function(val)
+AutoClosePopupsToggle = createToggle(ConfigTab, "Auto Fechar Pop-ups de Robux (Clicando Fora)", Config.AutoClosePopups, function(val)
     Config.AutoClosePopups = val
-    if EndlessReviveToggle and EndlessReviveToggle.Set then
-        EndlessReviveToggle.Set(val, true)
-    end
     saveConfig()
 end)
 
-PlaytimeToggle = createToggle(ConfigTab, "Auto Resgatar Recompensas de Tempo", Config.AutoClaimPlaytime, function(val)
+PlaytimeToggle = createToggle(ConfigTab, "Auto Resgatar Recompensas de Tempo de Jogo", Config.AutoClaimPlaytime, function(val)
     Config.AutoClaimPlaytime = val
     saveConfig()
 end)
@@ -3527,18 +2955,16 @@ createButton(ConfigTab, "🎁 Resgatar Recompensas de Tempo Agora", false, funct
     claimPlaytimeRewards()
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "🎁 Recompensas de Tempo",
-            Text = "Verificando e resgatando recompensas disponíveis...",
+            Title = "🎁 Recompensas",
+            Text = "Verificando e resgatando recompensas de tempo...",
             Duration = 3
         })
     end)
 end)
 
-createSectionHeader(ConfigTab, "💾 SALVAMENTO DE ESTADO & SERVER HOP")
+createSectionHeader(ConfigTab, "💾 PERSISTÊNCIA & CONFIGURAÇÃO")
 
-createInfoCard(ConfigTab, "📁 Arquivo de Configuração", "SuperHeroEvolution_Config.json", Themes.Success)
-
-createToggle(ConfigTab, "Salvar Estado Automaticamente", Config.AutoSaveConfig, function(val)
+createToggle(ConfigTab, "Salvar Configurações Usadas no Script", Config.AutoSaveConfig, function(val)
     Config.AutoSaveConfig = val
     saveConfig()
 end)
@@ -3547,14 +2973,14 @@ createButton(ConfigTab, "💾 Salvar Configurações Agora", true, function()
     saveConfig()
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "💾 Salvo com Sucesso!",
-            Text = "Estado atual das funções salvo no arquivo!",
+            Title = "💾 Salvo com Sucesso",
+            Text = "Configurações salvas no arquivo!",
             Duration = 3
         })
     end)
 end)
 
-createButton(ConfigTab, "🔄 Recarregar Configurações do Arquivo", false, function()
+createButton(ConfigTab, "🔄 Recarregar Configurações Salvas", false, function()
     if loadConfig() then
         if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick == true, true) end
         if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
@@ -3562,69 +2988,46 @@ createButton(ConfigTab, "🔄 Recarregar Configurações do Arquivo", false, fun
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
-        if EndlessReviveToggle and EndlessReviveToggle.Set then EndlessReviveToggle.Set(Config.AutoClosePopups == true, true) end
+        if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "🔄 Configurações Recarregadas!",
-                Text = "Funções e parâmetros restaurados do arquivo!",
+                Title = "🔄 Configurações Restauradas",
+                Text = "Configurações recarregadas com sucesso!",
                 Duration = 3
             })
         end)
     end
 end)
 
-createButton(ConfigTab, "🌐 Forçar Server Hop (Trocar Servidor)", false, function()
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "🌐 Server Hop",
-            Text = "Salvando estado e conectando a novo servidor...",
-            Duration = 3
-        })
-    end)
+createButton(ConfigTab, "🌐 Trocar de Servidor (Server Hop)", false, function()
     saveConfig()
     serverHop()
 end)
 
 createInfoCard(ConfigTab, "⌨️ Tecla de Atalho", "Pressione 'K' para Minimizar / Abrir", Themes.TextDim)
 
-createButton(ConfigTab, "❌ Descarregar / Fechar Script", false, function()
+createButton(ConfigTab, "❌ Fechar / Descarregar Script", false, function()
     if getgenv().SuperHeroEvolutionHubCleanup then
         getgenv().SuperHeroEvolutionHubCleanup()
     end
 end)
 
--- Aplica visualmente os estados carregados a todos os botões e toggles
+-- Aplica estados carregados
 local function applyLoadedConfig()
     pcall(function()
         if ClickToggle and ClickToggle.Set then ClickToggle.Set(Config.FastClick == true, true) end
         if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
         if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
-        if ReturnToSpawnToggle and ReturnToSpawnToggle.Set then ReturnToSpawnToggle.Set(Config.ReturnToSpawnAfterWin == true, true) end
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
-        if EndlessReviveToggle and EndlessReviveToggle.Set then EndlessReviveToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
     end)
 end
 applyLoadedConfig()
 
--- Notificação se tiver restaurado após Server Hop
-if ConfigRestoredAfterHop then
-    task.spawn(function()
-        task.wait(2.0)
-        pcall(function()
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "💾 Estado Restaurado!",
-                Text = "Funções ativas recarregadas automaticamente pós-Server Hop!",
-                Duration = 6
-            })
-        end)
-    end)
-end
-
 -- ══════════════════════════════════════════════════════════════
--- 7. CLEANUP FUNCTION & AUTO-UPDATE
+-- 6. CLEANUP & AUTO-UPDATE
 -- ══════════════════════════════════════════════════════════════
 getgenv().SuperHeroEvolutionHubCleanup = function()
     for k, _ in pairs(Config) do
@@ -3638,9 +3041,7 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then hum.WalkSpeed = 16 end
         for _, part in ipairs(char and char:GetDescendants() or {}) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
+            if part:IsA("BasePart") then part.CanCollide = true end
         end
     end)
     
@@ -3652,17 +3053,11 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
     if ScreenGui and ScreenGui.Parent then pcall(function() ScreenGui:Destroy() end) end
     destroyExistingHubs()
     
-    SessionRebirths = 0
-    totalWinsCollectedCount = 0
-    Config.RebirthsCount = 0
-    Config.ClicksCount = 0
-    Config.WinsCount = 0
-    
     getgenv().SuperHeroEvolutionHubLoaded = nil
     getgenv().SuperHeroEvolutionHubCleanup = nil
     getgenv().SuperHeroEvolutionHubConfig = nil
     
-    print("[Hub] Script descarregado completamente com sucesso.")
+    print("[SUPERHERO EVOLUTION] Script descarregado completamente com sucesso.")
 end
 
 -- Auto Update
@@ -3678,22 +3073,11 @@ spawnThread(function()
                     local data = HttpService:JSONDecode(raw)
                     if data and data.timestamp and tonumber(data.timestamp) > SCRIPT_VERSION_TIMESTAMP then
                         isAutoUpdating = true
-                        print(string.format("[Auto Update] Nova versão detectada (%s: %s)! Recarregando script automaticamente...", tostring(data.commit), tostring(data.message or "Atualização")))
-                        
-                        pcall(function()
-                            game:GetService("StarterGui"):SetCore("SendNotification", {
-                                Title = "🚀 Hub Atualizado!",
-                                Text = "Nova versão (" .. tostring(data.commit) .. ") carregada automaticamente!",
-                                Duration = 5
-                            })
-                        end)
-                        
                         pcall(function()
                             if getgenv().SuperHeroEvolutionHubCleanup then
                                 getgenv().SuperHeroEvolutionHubCleanup()
                             end
                         end)
-                        
                         task.wait(0.5)
                         loadstring(game:HttpGet("https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/script.lua?t=" .. os.time()))()
                     end
@@ -3706,13 +3090,13 @@ end)
 -- Seleciona a primeira aba inicialmente
 if TabButtons["Auto Win"] then
     TabButtons["Auto Win"].BackgroundTransparency = 0
-    TabButtons["Auto Win"].BackgroundColor3 = Themes.Card
-    TabButtons["Auto Win"].TextColor3 = Themes.Accent2
+    TabButtons["Auto Win"].BackgroundColor3 = Themes.AccentBlueBg
+    TabButtons["Auto Win"].TextColor3 = Themes.AccentBlue
     Tabs["Auto Win"].Visible = true
 end
 
 print("══════════════════════════════════════════════════════")
-print("[SUPERHERO EVOLUTION HUB - AUTO EDITION V2.0] Carregado com Sucesso!")
-print("Recursos: Auto Click Otimizado, Auto Rebirth, Auto Farm Win e Auto Endless.")
+print("[SUPERHERO EVOLUTION HUB] Carregado com Sucesso!")
+print("Recursos: Auto Click (0.1s a 10s), Auto Rebirth, Auto Win com Pad Alvo e Pausa, Auto Endless (Mundo 10 padrão, parado até morrer), Config (Salvar, Anti-AFK, Auto Recompensas, Auto Fechar Pop-ups Robux clicando fora).")
 print("Pressione 'K' para Minimizar / Abrir a interface.")
 print("══════════════════════════════════════════════════════")
