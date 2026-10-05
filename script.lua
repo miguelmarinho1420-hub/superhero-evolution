@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791168893
+local SCRIPT_VERSION_TIMESTAMP = 1791169165
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -1409,8 +1409,50 @@ local function returnToSpawn(curMap, worldNum, stagesList)
     end
 end
 
--- Farm individual de cada estágio
-local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
+local function getStageReferencePosition(stageInst)
+    if not stageInst then return nil end
+    local gate = stageInst:FindFirstChild("Gate") or stageInst:FindFirstChild("Barrier") or stageInst:FindFirstChild("Exit")
+    if gate then
+        return gate:IsA("BasePart") and gate.Position or (gate:IsA("Model") and gate:GetPivot().Position)
+    end
+    local pad = getStageFreePad(stageInst)
+    if pad then return pad.Position end
+    local sp = stageInst:FindFirstChild("Spawn")
+    if sp then
+        return sp:IsA("BasePart") and sp.Position or (sp:IsA("Model") and sp:GetPivot().Position)
+    end
+    if stageInst:IsA("Model") then return stageInst:GetPivot().Position end
+    local bp = stageInst:FindFirstChildWhichIsA("BasePart", true)
+    return bp and bp.Position
+end
+
+local function getTrackForwardDirection(stagesList)
+    if not stagesList or #stagesList < 2 then
+        return Vector3.new(0, 0, -1)
+    end
+    local firstPos = getStageReferencePosition(stagesList[1].Stage)
+    local lastPos = getStageReferencePosition(stagesList[#stagesList].Stage)
+    if firstPos and lastPos then
+        local flat = Vector3.new(lastPos.X - firstPos.X, 0, lastPos.Z - firstPos.Z)
+        if flat.Magnitude > 5 then
+            return flat.Unit
+        end
+    end
+    for i = 1, #stagesList - 1 do
+        local pA = getStageReferencePosition(stagesList[i].Stage)
+        local pB = getStageReferencePosition(stagesList[i + 1].Stage)
+        if pA and pB then
+            local flat = Vector3.new(pB.X - pA.X, 0, pB.Z - pA.Z)
+            if flat.Magnitude > 2 then
+                return flat.Unit
+            end
+        end
+    end
+    return Vector3.new(0, 0, -1)
+end
+
+-- Farm individual de cada estágio (Apenas movimento para frente)
+local function farmStage(stage, stageNum, isFinalTargetStage, stagesList, trackDir)
     if not stage or not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
     local char = LocalPlayer.Character
@@ -1418,17 +1460,7 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false, "dead" end
     
-    local combatPos = getStageCombatPosition(stage)
-    if not combatPos then return false, "nopos" end
-    
-    -- Desliza suavemente até o estágio
-    local horizDistComb = (Vector3.new(hrp.Position.X - combatPos.X, 0, hrp.Position.Z - combatPos.Z)).Magnitude
-    if horizDistComb > 1.2 then
-        local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
-        if not okGlide then return false, "dead" end
-    end
-    
-    if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
+    trackDir = trackDir or Vector3.new(0, 0, -1)
     
     -- Pausa configurável: se 'none', não para em nenhum estágio; se for um estágio, para a partir dele
     local shouldPauseAtThisStage = false
@@ -1440,7 +1472,25 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
     end
     local waitDuration = shouldPauseAtThisStage and math.clamp(Config.StageStopTime or 0.5, 0.1, 10.0) or 0.0
     
+    -- 1. Se DEVE pausar para lutar neste estágio
     if waitDuration > 0 then
+        local combatPos = getStageCombatPosition(stage)
+        if combatPos then
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local toCombat = Vector3.new(combatPos.X - hrp.Position.X, 0, combatPos.Z - hrp.Position.Z)
+                -- Só anda até a área de combate se ela estiver À FRENTE (nunca volta para trás!)
+                if toCombat:Dot(trackDir) > 0.5 and toCombat.Magnitude > 1.2 then
+                    local okGlide = glideToCFrame(CFrame.new(combatPos), nil, true)
+                    if not okGlide then return false, "dead" end
+                end
+            end
+        end
+        
+        if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
+        
+        -- Luta no estágio durante o tempo configurado
         local fightStart = os.clock()
         while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
             char = LocalPlayer.Character
@@ -1459,7 +1509,7 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- Tratamento do Pad
+    -- 2. Movimento para frente
     if isFinalTargetStage then
         -- Apenas no estágio final selecionado (ex: 145) ele vai para o Pad!
         local targetPad = getStageFreePad(stage)
@@ -1502,12 +1552,17 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
             task.wait(0.15)
         end
     else
-        -- Estágio intermediário: desliza direto pelo Gate sem tocar no Pad intermediário
+        -- Estágio intermediário: desliza SEMPRE PARA FRENTE até a saída/gate
         local gatePos = getStageGatePosition(stage)
         if gatePos then
-            local distToGate = (Vector3.new(hrp.Position.X - gatePos.X, 0, hrp.Position.Z - gatePos.Z)).Magnitude
-            if distToGate > 1.2 and distToGate < 90 then
-                glideToCFrame(CFrame.new(gatePos), nil, true)
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local toGate = Vector3.new(gatePos.X - hrp.Position.X, 0, gatePos.Z - hrp.Position.Z)
+                -- Só desliza se o gate estiver À FRENTE no percurso (nunca anda para trás)
+                if toGate:Dot(trackDir) > 0.5 and toGate.Magnitude > 1.2 then
+                    glideToCFrame(CFrame.new(gatePos), nil, true)
+                end
             end
         end
     end
@@ -1548,12 +1603,16 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         return
     end
     
+    -- Calcula vetor de direção da pista (sempre para frente)
+    local trackDir = getTrackForwardDirection(stagesList)
+    
+    -- Encontra o estágio mais próximo sem voltar para trás
     local startIndex = 1
     local minDist = math.huge
     for idx, item in ipairs(stagesList) do
-        local cPos = getStageCombatPosition(item.Stage)
-        if cPos then
-            local d = (Vector3.new(hrp.Position.X - cPos.X, 0, hrp.Position.Z - cPos.Z)).Magnitude
+        local refPos = getStageReferencePosition(item.Stage) or getStageCombatPosition(item.Stage)
+        if refPos then
+            local d = (Vector3.new(hrp.Position.X - refPos.X, 0, hrp.Position.Z - refPos.Z)).Magnitude
             if d < minDist then
                 minDist = d
                 startIndex = idx
@@ -1562,7 +1621,22 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     end
     if minDist > 250 then startIndex = 1 end
     
-    -- Desliza pelos estágios em ordem até o estágio alvo
+    -- Se o estágio de início estiver para trás do jogador, avança para não andar para trás
+    while startIndex < #stagesList do
+        local curRef = getStageReferencePosition(stagesList[startIndex].Stage)
+        if curRef then
+            local toCur = Vector3.new(curRef.X - hrp.Position.X, 0, curRef.Z - hrp.Position.Z)
+            if toCur:Dot(trackDir) < -2.0 then
+                startIndex = startIndex + 1
+            else
+                break
+            end
+        else
+            break
+        end
+    end
+    
+    -- Desliza pelos estágios em ordem ESTRITAMENTE PARA FRENTE até o estágio alvo
     for i = startIndex, #stagesList do
         if cancelCheck and cancelCheck() then break end
         if not Config.AutoWin or Config.AutoEndless then break end
@@ -1578,7 +1652,7 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
         
         local item = stagesList[i]
         local isSelectedStage = (i == #stagesList)
-        local success, reason = farmStage(item.Stage, item.Num, isSelectedStage, stagesList)
+        local success, reason = farmStage(item.Stage, item.Num, isSelectedStage, stagesList, trackDir)
         
         char = LocalPlayer.Character
         hum = char and char:FindFirstChildOfClass("Humanoid")
