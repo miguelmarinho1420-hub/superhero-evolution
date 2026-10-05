@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791169581
+local SCRIPT_VERSION_TIMESTAMP = 1791217687
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -95,6 +95,17 @@ local RemoteEndlessBattleState = Remotes and Remotes:FindFirstChild("EndlessBatt
 local RemoteEndlessUpdate = Remotes and Remotes:FindFirstChild("EndlessUpdate")
 local RemotePlayVFX = Remotes and Remotes:FindFirstChild("PlayVFX")
 
+-- Remotes Oficiais de Títulos & Boss
+local RemoteEquipTitle = Remotes and Remotes:FindFirstChild("EquipTitle")
+local RemoteGetTitlesState = Remotes and Remotes:FindFirstChild("GetTitlesState")
+local RemoteTitlesUpdated = Remotes and Remotes:FindFirstChild("TitlesUpdated")
+local RemoteBossEventPrompt = Remotes and Remotes:FindFirstChild("BossEventPrompt")
+local RemoteBossEventResponse = Remotes and Remotes:FindFirstChild("BossEventResponse")
+local RemoteBossEventCountdown = Remotes and Remotes:FindFirstChild("BossEventCountdown")
+local RemoteBossEventUpdate = Remotes and Remotes:FindFirstChild("BossEventUpdate")
+local RemoteBossEventReward = Remotes and Remotes:FindFirstChild("BossEventReward")
+local RemoteBossEventRequestState = Remotes and Remotes:FindFirstChild("BossEventRequestState")
+
 -- ══════════════════════════════════════════════════════════════
 -- CONFIGURAÇÕES & ESTADO
 -- ══════════════════════════════════════════════════════════════
@@ -124,7 +135,17 @@ local Config = {
     AutoEndless = false,
     EndlessWorld = "world10", -- Sempre padrão no melhor mundo (Mundo 10)
     
-    -- 5. Configurações Gerais
+    -- 5. Auto Boss (Prioridade Total: pausa todas as outras funções até o Boss morrer)
+    AutoEnterBoss = true,
+    
+    -- 6. Títulos Rápidos (HUD no Canto Inferior Direito)
+    ShowCornerTitles = true,
+    ActiveTitleCategory = "none",
+    SelectedLuckTitle = "best",
+    SelectedWinsTitle = "best",
+    SelectedTokenTitle = "best",
+    
+    -- 7. Configurações Gerais
     AutoSaveConfig = true,
     AntiAfk = true,
     AutoClaimPlaytime = true,
@@ -155,6 +176,12 @@ local function saveConfig()
             SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
+            AutoEnterBoss = Config.AutoEnterBoss,
+            ShowCornerTitles = Config.ShowCornerTitles,
+            ActiveTitleCategory = Config.ActiveTitleCategory,
+            SelectedLuckTitle = Config.SelectedLuckTitle,
+            SelectedWinsTitle = Config.SelectedWinsTitle,
+            SelectedTokenTitle = Config.SelectedTokenTitle,
             AutoSaveConfig = Config.AutoSaveConfig,
             AntiAfk = Config.AntiAfk,
             AutoClaimPlaytime = Config.AutoClaimPlaytime,
@@ -240,6 +267,321 @@ local EndlessArenaCenters = {
     [10] = Vector3.new(7219.63, 34.0, -1305.00),
 }
 
+-- ══════════════════════════════════════════════════════════════
+-- DADOS E GERENCIAMENTO DE TÍTULOS (SORTE, VITÓRIA, TOKEN)
+-- ══════════════════════════════════════════════════════════════
+local BOSS_ARENA_CFRAME = CFrame.new(0, 84, -400)
+
+local TitlesByBuff = {
+    Luck = {
+        {Id = "ancient_one", Name = "Ancient One (+500% Sorte)", Bonus = 500},
+        {Id = "beast_god", Name = "Beast God (+500% Sorte)", Bonus = 500},
+        {Id = "vault_keeper", Name = "Vault Keeper (+300% Sorte)", Bonus = 300},
+        {Id = "mother_of_dragons", Name = "Legion Commander (+300% Sorte)", Bonus = 300},
+        {Id = "mythic_hero", Name = "Mythic Hero (+300% Sorte)", Bonus = 300},
+        {Id = "living_legend", Name = "Living Legend (+180% Sorte)", Bonus = 180},
+        {Id = "prismatic", Name = "Relic Curator (+150% Sorte)", Bonus = 150},
+        {Id = "hatchaholic", Name = "Beastmaster (+150% Sorte)", Bonus = 150},
+        {Id = "relentless", Name = "Relentless (+90% Sorte)", Bonus = 90},
+        {Id = "relic_hunter", Name = "Relic Hunter (+75% Sorte)", Bonus = 75},
+        {Id = "celestial", Name = "Beast Tamer (+75% Sorte)", Bonus = 75},
+        {Id = "taskmaster", Name = "Taskmaster (+45% Sorte)", Bonus = 45},
+        {Id = "scavenger", Name = "Scavenger (+25% Sorte)", Bonus = 25},
+        {Id = "shell_breaker", Name = "Sidekick (+25% Sorte)", Bonus = 25},
+        {Id = "quester", Name = "Do-Gooder (+15% Sorte)", Bonus = 15},
+    },
+    Wins = {
+        {Id = "hall_of_famer", Name = "Hall of Famer (+500% Vitórias)", Bonus = 500},
+        {Id = "unstoppable", Name = "Undefeated (+300% Vitórias)", Bonus = 300},
+        {Id = "world_ender", Name = "Archenemy (+300% Vitórias)", Bonus = 300},
+        {Id = "godslayer", Name = "Overlord Hunter (+180% Vitórias)", Bonus = 180},
+        {Id = "born_to_win", Name = "Unstoppable (+150% Vitórias)", Bonus = 150},
+        {Id = "kingslayer", Name = "Villain Slayer (+90% Vitórias)", Bonus = 90},
+        {Id = "repeat_offender", Name = "Champion (+75% Vitórias)", Bonus = 75},
+        {Id = "stormbringer", Name = "Nemesis (+45% Vitórias)", Bonus = 45},
+        {Id = "victory_lap", Name = "Contender (+25% Vitórias)", Bonus = 25},
+        {Id = "giant_slayer", Name = "Villain Hunter (+15% Vitórias)", Bonus = 15},
+    },
+    Tokens = {
+        {Id = "eternity", Name = "Eternity (+500% Tokens)", Bonus = 500},
+        {Id = "warbringer", Name = "Warbringer (+500% Tokens)", Bonus = 500},
+        {Id = "the_endless", Name = "The Endless (+300% Tokens)", Bonus = 300},
+        {Id = "calamity", Name = "War Legend (+300% Tokens)", Bonus = 300},
+        {Id = "world_ender", Name = "Archenemy (+300% Tokens)", Bonus = 300},
+        {Id = "beyond_limits", Name = "Unbreakable (+150% Tokens)", Bonus = 150},
+        {Id = "last_one_standing", Name = "Raid Commander (+150% Tokens)", Bonus = 150},
+        {Id = "godslayer", Name = "Overlord Hunter (+180% Tokens)", Bonus = 180},
+        {Id = "kingslayer", Name = "Villain Slayer (+90% Tokens)", Bonus = 90},
+        {Id = "unyielding", Name = "Last Stand (+75% Tokens)", Bonus = 75},
+        {Id = "voidborn", Name = "Strike Leader (+75% Tokens)", Bonus = 75},
+        {Id = "stormbringer", Name = "Nemesis (+45% Tokens)", Bonus = 45},
+        {Id = "survivor", Name = "Survivor (+25% Tokens)", Bonus = 25},
+        {Id = "breach_specialist", Name = "Team Player (+25% Tokens)", Bonus = 25},
+        {Id = "giant_slayer", Name = "Villain Hunter (+15% Tokens)", Bonus = 15},
+    }
+}
+
+local CurrentEquippedTitle = nil
+local updateCornerTitlesVisual = function() end
+local updateHubTitleCard = function() end
+local BossStatusCard = nil
+local TitleEquippedCard = nil
+
+local function getOwnedTitlesSet()
+    local owned = {}
+    pcall(function()
+        if RemoteGetTitlesState then
+            local res = RemoteGetTitlesState:InvokeServer()
+            if type(res) == "table" then
+                if res.Equipped and type(res.Equipped) == "string" then
+                    CurrentEquippedTitle = res.Equipped
+                end
+                local candidates = {res.Unlocked, res.Titles, res.Owned, res}
+                for _, lst in ipairs(candidates) do
+                    if type(lst) == "table" then
+                        for k, v in pairs(lst) do
+                            if type(v) == "string" then
+                                owned[v] = true
+                            elseif type(k) == "string" and (v == true or type(v) == "table") then
+                                owned[k] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return owned
+end
+
+local function getTitleDisplayName(titleId)
+    if not titleId or titleId == "" then return "Nenhum" end
+    for cat, list in pairs(TitlesByBuff) do
+        for _, t in ipairs(list) do
+            if t.Id == titleId then
+                return t.Name
+            end
+        end
+    end
+    return tostring(titleId)
+end
+
+local function equipCategoryTitle(category)
+    local list = TitlesByBuff[category]
+    if not list or #list == 0 then return end
+    
+    local owned = getOwnedTitlesSet()
+    local targetTitle = nil
+    
+    -- 1. Verifica se usuário configurou um título específico
+    local prefConfigKey = "Selected" .. category .. "Title"
+    local prefTitleId = Config[prefConfigKey]
+    if prefTitleId and prefTitleId ~= "best" then
+        for _, t in ipairs(list) do
+            if t.Id == prefTitleId then
+                targetTitle = t
+                break
+            end
+        end
+    end
+    
+    -- 2. Se for 'best' ou não configurado, pega o de maior valor desbloqueado
+    if not targetTitle then
+        for _, t in ipairs(list) do
+            if owned[t.Id] then
+                targetTitle = t
+                break
+            end
+        end
+    end
+    
+    -- 3. Se a lista de desbloqueados não puder ser lida pelo server, tenta do maior para o menor
+    if not targetTitle then
+        for _, t in ipairs(list) do
+            local success = false
+            pcall(function()
+                if RemoteEquipTitle then
+                    local ret = RemoteEquipTitle:InvokeServer(t.Id)
+                    if ret == true or ret == nil then
+                        targetTitle = t
+                        success = true
+                    end
+                end
+            end)
+            if success and targetTitle then break end
+        end
+    else
+        pcall(function()
+            if RemoteEquipTitle then
+                RemoteEquipTitle:InvokeServer(targetTitle.Id)
+            end
+        end)
+    end
+    
+    if targetTitle then
+        CurrentEquippedTitle = targetTitle.Id
+        Config.ActiveTitleCategory = category
+        pcall(saveConfig)
+        updateCornerTitlesVisual()
+        updateHubTitleCard()
+        
+        local catEmoji = (category == "Luck" and "🍀" or category == "Wins" and "🏆" or "🪙")
+        local catName = (category == "Luck" and "Sorte" or category == "Wins" and "Vitória" or "Token")
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = catEmoji .. " Título de " .. catName,
+                Text = "Equipado com Sucesso: " .. targetTitle.Name,
+                Duration = 3,
+            })
+        end)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- ESTADO E GERENCIADOR DO BOSS (PAUSA ABSOLUTA DAS OUTRAS FUNÇÕES)
+-- ══════════════════════════════════════════════════════════════
+local IsInBossFight = false
+local BossPausedMemory = nil
+local IsResumingFromBoss = false
+
+local function pauseAllFunctionsForBoss(source)
+    if IsInBossFight then return end
+    IsInBossFight = true
+    
+    -- Registra exatamente o que estava ativo para ser retomado depois
+    BossPausedMemory = {
+        FastClick = Config.FastClick,
+        AutoRebirth = Config.AutoRebirth,
+        AutoWin = Config.AutoWin,
+        AutoEndless = Config.AutoEndless,
+    }
+    
+    print("══════════════════════════════════════════════════════")
+    print(string.format("[AUTO BOSS] Entrando no Boss (%s)!", tostring(source or "Evento")))
+    print("[AUTO BOSS] PAUSANDO TODAS AS OUTRAS FUNÇÕES:")
+    if BossPausedMemory.AutoEndless then print("  -> Auto Endless PAUSADO") end
+    if BossPausedMemory.AutoWin then print("  -> Auto Win PAUSADO") end
+    if BossPausedMemory.FastClick then print("  -> Auto Click PAUSADO") end
+    if BossPausedMemory.AutoRebirth then print("  -> Auto Rebirth PAUSADO") end
+    print("[AUTO BOSS] REGRA: NENHUMA OUTRA FUNÇÃO EXECUTARÁ ATÉ O BOSS MORRER!")
+    print("══════════════════════════════════════════════════════")
+    
+    -- Para imediatamente movimento residual de Win ou Endless
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hum then hum:Move(Vector3.zero, false) end
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+    
+    if BossStatusCard and BossStatusCard.Update then
+        BossStatusCard.Update("⚔️ EM COMBATE COM O BOSS (Outras Funções Pausadas)", Themes.AccentOrange)
+    end
+    
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "⚔️ Entrando no Boss!",
+            Text = "Todas as outras funções foram PAUSADAS até o Boss morrer.",
+            Duration = 3.5,
+        })
+    end)
+end
+
+local function resumeFunctionsAfterBoss(reason)
+    if not IsInBossFight or IsResumingFromBoss then return end
+    IsResumingFromBoss = true
+    
+    print("══════════════════════════════════════════════════════")
+    print(string.format("[AUTO BOSS] Boss morreu / finalizado (%s)!", tostring(reason or "Derrotado")))
+    print("[AUTO BOSS] Aguardando 2.0s para coletar recompensas e despausar...")
+    print("══════════════════════════════════════════════════════")
+    
+    if BossStatusCard and BossStatusCard.Update then
+        BossStatusCard.Update("🏆 Boss Derrotado! Despausando funções...", Themes.AccentGreen)
+    end
+    
+    task.wait(2.0)
+    
+    IsInBossFight = false
+    IsResumingFromBoss = false
+    
+    if BossPausedMemory then
+        print("[AUTO BOSS] DESPAUSANDO as funções anteriores com sucesso:")
+        if BossPausedMemory.AutoEndless then
+            Config.AutoEndless = true
+            if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(true, true) end
+            print("  -> Auto Endless DESPAUSADO")
+        end
+        if BossPausedMemory.AutoWin then
+            Config.AutoWin = true
+            if WinToggle and WinToggle.Set then WinToggle.Set(true, true) end
+            print("  -> Auto Win DESPAUSADO")
+        end
+        if BossPausedMemory.FastClick then
+            Config.FastClick = true
+            if ClickToggle and ClickToggle.Set then ClickToggle.Set(true, true) end
+            print("  -> Auto Click DESPAUSADO")
+        end
+        if BossPausedMemory.AutoRebirth then
+            Config.AutoRebirth = true
+            if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(true, true) end
+            print("  -> Auto Rebirth DESPAUSADO")
+        end
+        BossPausedMemory = nil
+    end
+    
+    if BossStatusCard and BossStatusCard.Update then
+        BossStatusCard.Update("Pronto / Aguardando Boss", Themes.AccentBlue)
+    end
+    
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "🏆 Boss Derrotado!",
+            Text = "O Boss morreu. As funções anteriores foram DESPAUSADAS!",
+            Duration = 4,
+        })
+    end)
+end
+
+local function teleportToBossArena()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        local targetCF = BOSS_ARENA_CFRAME
+        local bossStage = workspace:FindFirstChild("BossFightStage")
+        local bossModel = bossStage and bossStage:FindFirstChildWhichIsA("Model")
+        if not bossModel then
+            for _, c in ipairs(workspace:GetChildren()) do
+                if c:IsA("Model") and c ~= char and Players:GetPlayerFromCharacter(c) == nil and (c.Name:lower():find("boss") or c:GetAttribute("BEName")) then
+                    bossModel = c
+                    break
+                end
+            end
+        end
+        
+        if bossModel then
+            local bHrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart or bossModel:FindFirstChildWhichIsA("BasePart")
+            if bHrp then
+                targetCF = bHrp.CFrame * CFrame.new(0, 4, 10)
+            end
+        end
+        
+        if LocalPlayer.RequestStreamAroundAsync then
+            pcall(function() LocalPlayer:RequestStreamAroundAsync(targetCF.Position) end)
+        end
+        
+        hrp.CFrame = targetCF
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
 -- Gerenciador de Threads e Conexões
 local ActiveThreads = {}
 local ActiveConnections = {}
@@ -269,6 +611,12 @@ local function queueScriptOnTeleport()
             SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
+            AutoEnterBoss = Config.AutoEnterBoss,
+            ShowCornerTitles = Config.ShowCornerTitles,
+            ActiveTitleCategory = Config.ActiveTitleCategory,
+            SelectedLuckTitle = Config.SelectedLuckTitle,
+            SelectedWinsTitle = Config.SelectedWinsTitle,
+            SelectedTokenTitle = Config.SelectedTokenTitle,
             AutoSaveConfig = Config.AutoSaveConfig,
             AntiAfk = Config.AntiAfk,
             AutoClaimPlaytime = Config.AutoClaimPlaytime,
@@ -511,7 +859,7 @@ end
 -- Daemon de verificação contínua em segundo plano
 spawnThread(function()
     while true do
-        if Config.AutoClosePopups then
+        if Config.AutoClosePopups and not IsInBossFight then
             pcall(dismissPopupsByClickingOutside)
         end
         task.wait(0.15)
@@ -543,7 +891,7 @@ end)
 -- AUTO RESGATE DE RECOMPENSAS DE TEMPO DE JOGO
 -- ══════════════════════════════════════════════════════════════
 local function claimPlaytimeRewards()
-    if not Config.AutoClaimPlaytime then return end
+    if not Config.AutoClaimPlaytime or IsInBossFight then return end
     
     pcall(function()
         -- 1. Varre e ativa os 12 botões de Recompensa de Tempo na UI (PlayerGui)
@@ -964,7 +1312,7 @@ local currentTargetEnemy = nil
 -- Thread 1: Rastreador de alvos desacoplado (roda a cada 0.6s)
 spawnThread(function()
     while true do
-        if Config.FastClick then
+        if Config.FastClick and not IsInBossFight then
             pcall(function()
                 local char = LocalPlayer.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1036,7 +1384,7 @@ spawnThread(function()
     local lastStatsUpdate = 0
     
     while true do
-        if Config.FastClick then
+        if Config.FastClick and not IsInBossFight then
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1087,7 +1435,7 @@ end)
 -- ══════════════════════════════════════════════════════════════
 spawnThread(function()
     while true do
-        if Config.AutoRebirth then
+        if Config.AutoRebirth and not IsInBossFight then
             pcall(function()
                 if RemoteRequestRebirth then
                     local s, res = pcall(function() return RemoteRequestRebirth:InvokeServer() end)
@@ -1222,7 +1570,7 @@ local function glideToCFrame(targetCFrame, speed, attackWhileMoving, exactTarget
     local t0 = os.clock()
     local maxDuration = math.max((horizDistInit / math.max(activeSpeed, 20)) + 3.0, 1.2)
     
-    while Config.AutoWin and not Config.AutoEndless do
+    while Config.AutoWin and not Config.AutoEndless and not IsInBossFight do
         local dt = RunService.Heartbeat:Wait()
         char = LocalPlayer.Character
         hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1488,11 +1836,11 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList, trackD
             end
         end
         
-        if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
+        if not Config.AutoWin or Config.AutoEndless or IsInBossFight then return false, "cancelled" end
         
         -- Luta no estágio durante o tempo configurado
         local fightStart = os.clock()
-        while Config.AutoWin and not Config.AutoEndless and (os.clock() - fightStart < waitDuration) do
+        while Config.AutoWin and not Config.AutoEndless and not IsInBossFight and (os.clock() - fightStart < waitDuration) do
             char = LocalPlayer.Character
             hrp = char and char:FindFirstChild("HumanoidRootPart")
             hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1530,7 +1878,7 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList, trackD
             
             local initialWinCount = totalWinsCollectedCount
             local padTouchStart = os.clock()
-            while Config.AutoWin and not Config.AutoEndless and (os.clock() - padTouchStart < 1.0) do
+            while Config.AutoWin and not Config.AutoEndless and not IsInBossFight and (os.clock() - padTouchStart < 1.0) do
                 char = LocalPlayer.Character
                 hrp = char and char:FindFirstChild("HumanoidRootPart")
                 hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1639,7 +1987,7 @@ local function farmStagesSequence(stagesFolder, selectedStage, cancelCheck)
     -- Desliza pelos estágios em ordem ESTRITAMENTE PARA FRENTE até o estágio alvo
     for i = startIndex, #stagesList do
         if cancelCheck and cancelCheck() then break end
-        if not Config.AutoWin or Config.AutoEndless then break end
+        if not Config.AutoWin or Config.AutoEndless or IsInBossFight then break end
         
         char = LocalPlayer.Character
         hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1690,7 +2038,7 @@ end
 -- Thread Principal do Auto Win
 spawnThread(function()
     while true do
-        if Config.AutoWin and not Config.AutoEndless then
+        if Config.AutoWin and not Config.AutoEndless and not IsInBossFight then
             pcall(function()
                 local myChar, myHrp, myHum = waitForCharacterAlive(6)
                 if not myHrp or not myHum or myHum.Health <= 0 then task.wait(0.5); return end
@@ -1808,7 +2156,7 @@ local function enterEndlessPortal()
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
-    if not Config.AutoEndless then return false end
+    if not Config.AutoEndless or IsInBossFight then return false end
     if isInsideEndless() then return true end
     
     local targetWorldNum = getSelectedEndlessWorldNum()
@@ -1873,7 +2221,7 @@ spawnThread(function()
     local lastJoinAttempt = 0
     
     while true do
-        if Config.AutoEndless then
+        if Config.AutoEndless and not IsInBossFight then
             pcall(function()
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1950,6 +2298,140 @@ spawnThread(function()
         task.wait(0.12)
     end
 end)
+
+-- ══════════════════════════════════════════════════════════════
+-- CONEXÕES & EVENTOS DO AUTO BOSS (SÓ ENTRA E PAUSA O RESTO)
+-- ══════════════════════════════════════════════════════════════
+if RemoteBossEventPrompt then
+    table.insert(ActiveConnections, RemoteBossEventPrompt.OnClientEvent:Connect(function(...)
+        if Config.AutoEnterBoss then
+            pauseAllFunctionsForBoss("Prompt de Convite")
+            if RemoteBossEventResponse then
+                RemoteBossEventResponse:FireServer(true)
+            end
+            task.defer(teleportToBossArena)
+        end
+    end))
+end
+
+if RemoteBossEventCountdown then
+    table.insert(ActiveConnections, RemoteBossEventCountdown.OnClientEvent:Connect(function(sec)
+        if Config.AutoEnterBoss and sec and sec <= 5 and sec > 0 then
+            pauseAllFunctionsForBoss("Countdown Final")
+            if RemoteBossEventResponse then
+                RemoteBossEventResponse:FireServer(true)
+            end
+            task.defer(teleportToBossArena)
+        end
+    end))
+end
+
+if RemoteBossEventUpdate then
+    table.insert(ActiveConnections, RemoteBossEventUpdate.OnClientEvent:Connect(function(arg1, ...)
+        local phase = (type(arg1) == "table" and arg1.phase) or (type(arg1) == "string" and arg1) or nil
+        local youJoined = (type(arg1) == "table" and arg1.youJoined) or nil
+        if phase == "Active" or youJoined == true then
+            if Config.AutoEnterBoss then
+                pauseAllFunctionsForBoss("Fase Ativa / Entrada")
+                task.defer(teleportToBossArena)
+            end
+        elseif phase == "Idle" then
+            if IsInBossFight then
+                resumeFunctionsAfterBoss("Fase Idle / Boss Finalizado")
+            end
+        end
+    end))
+end
+
+if RemoteBossEventReward then
+    table.insert(ActiveConnections, RemoteBossEventReward.OnClientEvent:Connect(function(...)
+        if IsInBossFight then
+            resumeFunctionsAfterBoss("Recompensa Recebida (Boss Morto)")
+        end
+    end))
+end
+
+if RemoteTitlesUpdated then
+    table.insert(ActiveConnections, RemoteTitlesUpdated.OnClientEvent:Connect(function(...)
+        task.defer(function()
+            pcall(getOwnedTitlesSet)
+            updateCornerTitlesVisual()
+            updateHubTitleCard()
+        end)
+    end))
+end
+
+-- Monitoramento Reativo: Barra de Vida do Boss e Popups In-game
+spawnThread(function()
+    local wasBhbVisible = false
+    while true do
+        pcall(function()
+            local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+            local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+            local bhb = top and top:FindFirstChild("BossHealthBar")
+            local isBhbVisible = (bhb and bhb.Visible == true)
+            
+            -- Detecta início do Boss pela barra de vida
+            if isBhbVisible and not IsInBossFight and Config.AutoEnterBoss then
+                pauseAllFunctionsForBoss("Barra de Vida Ativa")
+                task.defer(teleportToBossArena)
+            end
+            
+            -- Detecta morte do Boss quando a barra de vida some
+            if wasBhbVisible and not isBhbVisible and IsInBossFight then
+                resumeFunctionsAfterBoss("Barra de Vida Desapareceu (Boss Derrotado)")
+            end
+            wasBhbVisible = isBhbVisible
+            
+            -- Se aparecer o popup BossFightInvite na tela, aceita automaticamente
+            if Config.AutoEnterBoss and top then
+                local bfi = top:FindFirstChild("BossFightInvite")
+                if bfi and bfi.Visible then
+                    local acceptBtn = bfi:FindFirstChild("Accept", true) or bfi:FindFirstChild("Join", true)
+                    if acceptBtn and acceptBtn:IsA("GuiButton") and firesignal then
+                        firesignal(acceptBtn.Activated)
+                        firesignal(acceptBtn.MouseButton1Click)
+                    end
+                    if RemoteBossEventResponse then
+                        RemoteBossEventResponse:FireServer(true)
+                    end
+                    pauseAllFunctionsForBoss("Popup de Convite Aceito")
+                    task.defer(teleportToBossArena)
+                end
+            end
+            
+            -- Se estiver no Boss, apenas ataca os socos básicos para ajudar a derrotar o boss
+            if IsInBossFight then
+                if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                if RemotePlayerClick then RemotePlayerClick:FireServer() end
+            end
+        end)
+        task.wait(0.12)
+    end
+end)
+
+-- Monitor de Morte do Jogador no Boss (evita travamento se o jogador morrer)
+local function handleCharacterDiedBoss(char)
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        hum.Died:Connect(function()
+            if IsInBossFight then
+                task.spawn(function()
+                    task.wait(3.5)
+                    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+                    local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+                    local bhb = top and top:FindFirstChild("BossHealthBar")
+                    if not (bhb and bhb.Visible) then
+                        resumeFunctionsAfterBoss("Morte do Personagem e Fim do Boss")
+                    end
+                end)
+            end
+        end)
+    end
+end
+if LocalPlayer.Character then handleCharacterDiedBoss(LocalPlayer.Character) end
+table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(handleCharacterDiedBoss))
 
 -- ══════════════════════════════════════════════════════════════
 -- 5. INTERFACE VISUAL (EXATAMENTE COMO NAS IMAGENS)
@@ -2284,6 +2766,228 @@ end
 
 makeDraggable(MainFrame, Topbar)
 makeDraggable(MiniBar, MiniBar)
+
+-- ══════════════════════════════════════════════════════════════
+-- HUD FLUTUANTE DE TÍTULOS RÁPIDOS (CANTO INFERIOR DIREITO)
+-- ══════════════════════════════════════════════════════════════
+local CornerTitlesHUD = Instance.new("Frame")
+CornerTitlesHUD.Name = "CornerTitlesHUD"
+CornerTitlesHUD.Size = UDim2.new(0, 165, 0, 134)
+-- Posição exatamente no canto inferior direito da tela (área assinalada na foto)
+CornerTitlesHUD.Position = UDim2.new(1, -215, 1, -195)
+CornerTitlesHUD.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+CornerTitlesHUD.BackgroundTransparency = 0.12
+CornerTitlesHUD.BorderSizePixel = 0
+CornerTitlesHUD.Active = true
+CornerTitlesHUD.Visible = (Config.ShowCornerTitles ~= false)
+CornerTitlesHUD.Parent = ScreenGui
+
+local HUDCorner = Instance.new("UICorner")
+HUDCorner.CornerRadius = UDim.new(0, 10)
+HUDCorner.Parent = CornerTitlesHUD
+
+local HUDStroke = Instance.new("UIStroke")
+HUDStroke.Thickness = 1.4
+HUDStroke.Color = Color3.fromRGB(56, 68, 95)
+HUDStroke.Transparency = 0.2
+HUDStroke.Parent = CornerTitlesHUD
+
+local HUDHeader = Instance.new("Frame")
+HUDHeader.Name = "HUDHeader"
+HUDHeader.Size = UDim2.new(1, 0, 0, 24)
+HUDHeader.BackgroundTransparency = 1
+HUDHeader.Parent = CornerTitlesHUD
+
+local HUDTitle = Instance.new("TextLabel")
+HUDTitle.Name = "HUDTitle"
+HUDTitle.Size = UDim2.new(1, -30, 1, 0)
+HUDTitle.Position = UDim2.new(0, 10, 0, 0)
+HUDTitle.BackgroundTransparency = 1
+HUDTitle.Text = "🏷️ TÍTULOS RÁPIDOS"
+HUDTitle.TextColor3 = Themes.TextDim
+HUDTitle.TextSize = 10
+HUDTitle.Font = Enum.Font.GothamBold
+HUDTitle.TextXAlignment = Enum.TextXAlignment.Left
+HUDTitle.Parent = HUDHeader
+
+local HUDMinimizeBtn = Instance.new("TextButton")
+HUDMinimizeBtn.Name = "Minimize"
+HUDMinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
+HUDMinimizeBtn.Position = UDim2.new(1, -24, 0, 2)
+HUDMinimizeBtn.BackgroundColor3 = Color3.fromRGB(24, 28, 40)
+HUDMinimizeBtn.BackgroundTransparency = 0.3
+HUDMinimizeBtn.BorderSizePixel = 0
+HUDMinimizeBtn.Text = "—"
+HUDMinimizeBtn.TextColor3 = Themes.TextDim
+HUDMinimizeBtn.TextSize = 11
+HUDMinimizeBtn.Font = Enum.Font.GothamBold
+HUDMinimizeBtn.Parent = HUDHeader
+
+local HUDMinCorner = Instance.new("UICorner")
+HUDMinCorner.CornerRadius = UDim.new(0, 4)
+HUDMinCorner.Parent = HUDMinimizeBtn
+
+local HUDBody = Instance.new("Frame")
+HUDBody.Name = "HUDBody"
+HUDBody.Size = UDim2.new(1, -16, 0, 100)
+HUDBody.Position = UDim2.new(0, 8, 0, 26)
+HUDBody.BackgroundTransparency = 1
+HUDBody.Parent = CornerTitlesHUD
+
+local HUDList = Instance.new("UIListLayout")
+HUDList.SortOrder = Enum.SortOrder.LayoutOrder
+HUDList.Padding = UDim.new(0, 5)
+HUDList.Parent = HUDBody
+
+makeDraggable(CornerTitlesHUD, HUDHeader)
+
+local hudMinimized = false
+HUDMinimizeBtn.Activated:Connect(function()
+    hudMinimized = not hudMinimized
+    if hudMinimized then
+        HUDMinimizeBtn.Text = "+"
+        HUDBody.Visible = false
+        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 165, 0, 24) }):Play()
+    else
+        HUDMinimizeBtn.Text = "—"
+        HUDBody.Visible = true
+        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 165, 0, 134) }):Play()
+    end
+end)
+HUDMinimizeBtn.MouseButton1Click:Connect(function()
+    HUDMinimizeBtn.Activated:Fire()
+end)
+
+local QuickTitleButtons = {}
+
+local function createQuickTitleButton(parent, category, labelText, defaultAccent, order)
+    local btn = Instance.new("TextButton")
+    btn.Name = "Btn_" .. category
+    btn.Size = UDim2.new(1, 0, 0, 28)
+    btn.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.LayoutOrder = order
+    btn.Parent = parent
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Thickness = 1.2
+    btnStroke.Color = Color3.fromRGB(42, 48, 65)
+    btnStroke.Transparency = 0.3
+    btnStroke.Parent = btn
+
+    local iconLabel = Instance.new("TextLabel")
+    iconLabel.Name = "Icon"
+    iconLabel.Size = UDim2.new(0, 22, 1, 0)
+    iconLabel.Position = UDim2.new(0, 8, 0, 0)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Text = (category == "Luck" and "🍀" or category == "Wins" and "🏆" or "🪙")
+    iconLabel.TextSize = 13
+    iconLabel.Font = Enum.Font.GothamBold
+    iconLabel.TextXAlignment = Enum.TextXAlignment.Left
+    iconLabel.Parent = btn
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "TitleText"
+    textLabel.Size = UDim2.new(1, -75, 1, 0)
+    textLabel.Position = UDim2.new(0, 30, 0, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = labelText
+    textLabel.TextColor3 = Themes.Text
+    textLabel.TextSize = 11
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+    textLabel.Parent = btn
+
+    local statusBadge = Instance.new("TextLabel")
+    statusBadge.Name = "Badge"
+    statusBadge.Size = UDim2.new(0, 42, 0, 16)
+    statusBadge.Position = UDim2.new(1, -48, 0.5, -8)
+    statusBadge.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+    statusBadge.BackgroundTransparency = 0.2
+    statusBadge.Text = "EQUIPAR"
+    statusBadge.TextColor3 = Themes.TextDim
+    statusBadge.TextSize = 8
+    statusBadge.Font = Enum.Font.GothamBold
+    statusBadge.Parent = btn
+
+    local badgeCorner = Instance.new("UICorner")
+    badgeCorner.CornerRadius = UDim.new(0, 4)
+    badgeCorner.Parent = statusBadge
+
+    local function setVisual(isActive)
+        if isActive then
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = (category == "Luck" and Color3.fromRGB(18, 44, 28) or category == "Wins" and Color3.fromRGB(46, 38, 16) or Color3.fromRGB(18, 36, 52))
+            }):Play()
+            btnStroke.Color = defaultAccent
+            btnStroke.Thickness = 1.5
+            btnStroke.Transparency = 0.0
+            statusBadge.Text = "ATIVO"
+            statusBadge.BackgroundColor3 = defaultAccent
+            statusBadge.TextColor3 = Color3.fromRGB(10, 12, 16)
+        else
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+            }):Play()
+            btnStroke.Color = Color3.fromRGB(42, 48, 65)
+            btnStroke.Thickness = 1.0
+            btnStroke.Transparency = 0.3
+            statusBadge.Text = "EQUIPAR"
+            statusBadge.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+            statusBadge.TextColor3 = Themes.TextDim
+        end
+    end
+
+    btn.MouseEnter:Connect(function()
+        if Config.ActiveTitleCategory ~= category then
+            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(30, 36, 48) }):Play()
+        end
+    end)
+    btn.MouseLeave:Connect(function()
+        if Config.ActiveTitleCategory ~= category then
+            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(22, 26, 36) }):Play()
+        end
+    end)
+
+    local function onButtonClicked()
+        TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -4, 0, 26)
+        }):Play()
+        task.wait(0.08)
+        TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, 0, 0, 28)
+        }):Play()
+
+        equipCategoryTitle(category)
+    end
+
+    btn.Activated:Connect(onButtonClicked)
+    btn.MouseButton1Click:Connect(onButtonClicked)
+
+    QuickTitleButtons[category] = {
+        Button = btn,
+        SetVisual = setVisual,
+        TextLabel = textLabel
+    }
+end
+
+createQuickTitleButton(HUDBody, "Luck", "Sorte", Color3.fromRGB(46, 204, 113), 1)
+createQuickTitleButton(HUDBody, "Wins", "Vitória", Color3.fromRGB(241, 196, 15), 2)
+createQuickTitleButton(HUDBody, "Tokens", "Token", Color3.fromRGB(52, 152, 219), 3)
+
+updateCornerTitlesVisual = function()
+    for cat, data in pairs(QuickTitleButtons) do
+        local isActive = (Config.ActiveTitleCategory == cat)
+        data.SetVisual(isActive)
+    end
+end
+updateCornerTitlesVisual()
 
 -- FPS, Ping e Rebirths em Tempo Real
 local fpsCount = 0
@@ -2940,7 +3644,8 @@ local ClickTab = createTab("Auto Click", "⚡", 1)
 local RebirthTab = createTab("Auto Rebirth", "🔄", 2)
 local WinTab = createTab("Auto Win", "🏆", 3)
 local EndlessTab = createTab("Auto Endless", "🌀", 4)
-local ConfigTab = createTab("Config", "⚙️", 5)
+local BossTitlesTab = createTab("Boss & Títulos", "⚔️", 5)
+local ConfigTab = createTab("Config", "⚙️", 6)
 
 -- ── ABA 1: AUTO CLICK ──────────────────────────────────────────
 createSectionHeader(ClickTab, "⚡ AUTO CLICK (SEGUNDO PLANO - ZERO CHAT INTERRUPT)")
@@ -3074,7 +3779,53 @@ EndlessToggle = createToggle(EndlessTab, "Ativar Auto Endless (Ficar Parado até
     saveConfig()
 end)
 
--- ── ABA 5: CONFIG ──────────────────────────────────────────────
+-- ── ABA 5: BOSS & TÍTULOS ──────────────────────────────────────
+createSectionHeader(BossTitlesTab, "⚔️ AUTO ENTRAR NO BOSS (PRIORIDADE TOTAL)")
+
+BossStatusCard = createInfoCard(BossTitlesTab, "📊 Status do Boss", "Pronto / Aguardando Boss", Themes.AccentBlue)
+
+BossToggle = createToggle(BossTitlesTab, "Auto Entrar no Boss (Pausar Outras Funções)", Config.AutoEnterBoss, function(val)
+    Config.AutoEnterBoss = val
+    saveConfig()
+end)
+
+createSectionHeader(BossTitlesTab, "🏷️ TÍTULOS RÁPIDOS & EQUIPAMENTO")
+
+TitleEquippedCard = createInfoCard(BossTitlesTab, "🏷️ Título Atualmente Equipado", "Carregando...", Themes.AccentGreen)
+updateHubTitleCard = function()
+    pcall(function()
+        if TitleEquippedCard and TitleEquippedCard.Update then
+            local tName = getTitleDisplayName(CurrentEquippedTitle)
+            TitleEquippedCard.Update(tName, Themes.AccentGreen)
+        end
+    end)
+end
+task.defer(function()
+    pcall(getOwnedTitlesSet)
+    updateHubTitleCard()
+end)
+
+createToggle(BossTitlesTab, "Exibir Painel de Títulos no Canto da Tela", Config.ShowCornerTitles, function(val)
+    Config.ShowCornerTitles = val
+    if CornerTitlesHUD then
+        CornerTitlesHUD.Visible = val
+    end
+    saveConfig()
+end)
+
+createButton(BossTitlesTab, "🍀 Equipar Melhor Título de Sorte", false, function()
+    equipCategoryTitle("Luck")
+end)
+
+createButton(BossTitlesTab, "🏆 Equipar Melhor Título de Vitória", false, function()
+    equipCategoryTitle("Wins")
+end)
+
+createButton(BossTitlesTab, "🪙 Equipar Melhor Título de Token", false, function()
+    equipCategoryTitle("Tokens")
+end)
+
+-- ── ABA 6: CONFIG ──────────────────────────────────────────────
 createSectionHeader(ConfigTab, "⚙️ UTILITÁRIOS & SEGUNDO PLANO")
 
 AntiAfkToggle = createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
@@ -3177,6 +3928,10 @@ local function applyLoadedConfig()
         if stageProgDropdown and stageProgDropdown.SetSelected then
             stageProgDropdown.SetSelected(Config.SelectedProgStage, tostring(Config.SelectedProgStage))
         end
+        if BossToggle and BossToggle.Set then BossToggle.Set(Config.AutoEnterBoss == true, true) end
+        if CornerTitlesHUD then CornerTitlesHUD.Visible = (Config.ShowCornerTitles ~= false) end
+        updateCornerTitlesVisual()
+        updateHubTitleCard()
     end)
 end
 applyLoadedConfig()
@@ -3205,6 +3960,9 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
     table.clear(ActiveThreads)
     table.clear(ActiveConnections)
     
+    IsInBossFight = false
+    BossPausedMemory = nil
+    if CornerTitlesHUD and CornerTitlesHUD.Parent then pcall(function() CornerTitlesHUD:Destroy() end) end
     if ScreenGui and ScreenGui.Parent then pcall(function() ScreenGui:Destroy() end) end
     destroyExistingHubs()
     
