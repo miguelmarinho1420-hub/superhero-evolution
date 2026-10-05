@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791168309
+local SCRIPT_VERSION_TIMESTAMP = 1791168893
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -114,7 +114,7 @@ local Config = {
     SelectedProgStage = "Stage150",
     AutoWin = false,
     WinGlideSpeed = 110,
-    PauseFromStage = 1, -- A partir de qual estágio começa a parar para matar inimigos
+    PauseFromStage = "none", -- "none" = Não parar em nenhum estágio
     StageStopTime = 0.5, -- Tempo de parada (0.1s a 10.0s)
     ReturnToSpawnAfterWin = true,
     SpawnReturnMethod = "Teleport", -- "Teleport" ou "Reset"
@@ -834,6 +834,17 @@ local function getStagesOptionsForWorld(worldId)
     return list
 end
 
+local function getPauseStageOptionsForWorld(worldId)
+    local list = {
+        {Id = "none", Name = "Não parar em nenhum estágio"}
+    }
+    local stages = getStagesOptionsForWorld(worldId)
+    for _, opt in ipairs(stages) do
+        table.insert(list, opt)
+    end
+    return list
+end
+
 -- Detecção de sacos de pancada de treino
 local cachedHitboxList = {}
 local lastHitboxMapCheck = 0
@@ -1419,8 +1430,14 @@ local function farmStage(stage, stageNum, isFinalTargetStage, stagesList)
     
     if not Config.AutoWin or Config.AutoEndless then return false, "cancelled" end
     
-    -- Pausa configurável: só pausa se o estágio for a partir do 'PauseFromStage' configurado!
-    local shouldPauseAtThisStage = (stageNum >= (Config.PauseFromStage or 1))
+    -- Pausa configurável: se 'none', não para em nenhum estágio; se for um estágio, para a partir dele
+    local shouldPauseAtThisStage = false
+    if Config.PauseFromStage and Config.PauseFromStage ~= "none" then
+        local pauseNum = tonumber(string.match(tostring(Config.PauseFromStage), "%d+"))
+        if pauseNum and stageNum >= pauseNum then
+            shouldPauseAtThisStage = true
+        end
+    end
     local waitDuration = shouldPauseAtThisStage and math.clamp(Config.StageStopTime or 0.5, 0.1, 10.0) or 0.0
     
     if waitDuration > 0 then
@@ -2867,6 +2884,10 @@ local worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.Selected
         stageProgDropdown.UpdateOptions(opts, def)
         Config.SelectedProgStage = def
     end
+    if pauseStageDropdown and pauseStageDropdown.UpdateOptions then
+        local pauseOpts = getPauseStageOptionsForWorld(worldId)
+        pauseStageDropdown.UpdateOptions(pauseOpts, Config.PauseFromStage or "none")
+    end
     saveConfig()
 end)
 
@@ -2890,8 +2911,9 @@ createSlider(WinTab, "Velocidade de Deslize do Personagem", 40, 350, Config.WinG
     saveConfig()
 end)
 
-createSlider(WinTab, "Pausar para Lutar a partir do Estágio", 1, 150, Config.PauseFromStage, " (Estágio)", false, function(val)
-    Config.PauseFromStage = val
+createLabel(WinTab, "3. Pausar para Lutar a partir do Estágio:")
+pauseStageDropdown = createDropdown(WinTab, "", getPauseStageOptionsForWorld(Config.SelectedProgWorld), Config.PauseFromStage or "none", function(stageId)
+    Config.PauseFromStage = stageId
     saveConfig()
 end)
 
@@ -2989,6 +3011,13 @@ createButton(ConfigTab, "🔄 Recarregar Configurações Salvas", false, functio
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
+        if pauseStageDropdown and pauseStageDropdown.SetSelected then
+            local pName = (Config.PauseFromStage == "none") and "Não parar em nenhum estágio" or tostring(Config.PauseFromStage)
+            pauseStageDropdown.SetSelected(Config.PauseFromStage or "none", pName)
+        end
+        if stageProgDropdown and stageProgDropdown.SetSelected then
+            stageProgDropdown.SetSelected(Config.SelectedProgStage, tostring(Config.SelectedProgStage))
+        end
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "🔄 Configurações Restauradas",
@@ -3022,6 +3051,13 @@ local function applyLoadedConfig()
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
+        if pauseStageDropdown and pauseStageDropdown.SetSelected then
+            local pName = (Config.PauseFromStage == "none") and "Não parar em nenhum estágio" or tostring(Config.PauseFromStage)
+            pauseStageDropdown.SetSelected(Config.PauseFromStage or "none", pName)
+        end
+        if stageProgDropdown and stageProgDropdown.SetSelected then
+            stageProgDropdown.SetSelected(Config.SelectedProgStage, tostring(Config.SelectedProgStage))
+        end
     end)
 end
 applyLoadedConfig()
