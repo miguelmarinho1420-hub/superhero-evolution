@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791217860
+local SCRIPT_VERSION_TIMESTAMP = 1791218528
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -141,9 +141,9 @@ local Config = {
     -- 6. Títulos Rápidos (HUD no Canto Inferior Direito)
     ShowCornerTitles = true,
     ActiveTitleCategory = "none",
-    SelectedLuckTitle = "best",
-    SelectedWinsTitle = "best",
-    SelectedTokenTitle = "best",
+    SelectedLuckTitle = "beast_god",
+    SelectedWinsTitle = "hall_of_famer",
+    SelectedTokenTitle = "eternity",
     
     -- 7. Configurações Gerais
     AutoSaveConfig = true,
@@ -217,6 +217,9 @@ local function loadConfig()
             if Config.AutoEndless == true then
                 Config.AutoWin = false
             end
+            if not Config.SelectedLuckTitle or Config.SelectedLuckTitle == "best" then Config.SelectedLuckTitle = "beast_god" end
+            if not Config.SelectedWinsTitle or Config.SelectedWinsTitle == "best" then Config.SelectedWinsTitle = "hall_of_famer" end
+            if not Config.SelectedTokenTitle or Config.SelectedTokenTitle == "best" then Config.SelectedTokenTitle = "eternity" end
             ConfigRestoredAfterHop = true
             return true
         end
@@ -272,10 +275,16 @@ local EndlessArenaCenters = {
 -- ══════════════════════════════════════════════════════════════
 local BOSS_ARENA_CFRAME = CFrame.new(0, 84, -400)
 
+local ConfiguredCategoryTitles = {
+    Luck = {Id = "beast_god", Name = "Beast God (+500% Sorte)", ShortName = "Beast God"},
+    Wins = {Id = "hall_of_famer", Name = "Hall of Famer (+500% Vitórias)", ShortName = "Hall of Famer"},
+    Tokens = {Id = "eternity", Name = "Eternity (+500% Tokens)", ShortName = "Eternity"},
+}
+
 local TitlesByBuff = {
     Luck = {
-        {Id = "ancient_one", Name = "Ancient One (+500% Sorte)", Bonus = 500},
         {Id = "beast_god", Name = "Beast God (+500% Sorte)", Bonus = 500},
+        {Id = "ancient_one", Name = "Ancient One (+500% Sorte)", Bonus = 500},
         {Id = "vault_keeper", Name = "Vault Keeper (+300% Sorte)", Bonus = 300},
         {Id = "mother_of_dragons", Name = "Legion Commander (+300% Sorte)", Bonus = 300},
         {Id = "mythic_hero", Name = "Mythic Hero (+300% Sorte)", Bonus = 300},
@@ -367,74 +376,39 @@ local function getTitleDisplayName(titleId)
 end
 
 local function equipCategoryTitle(category)
-    local list = TitlesByBuff[category]
-    if not list or #list == 0 then return end
-    
-    local owned = getOwnedTitlesSet()
-    local targetTitle = nil
-    
-    -- 1. Verifica se usuário configurou um título específico
+    local targetConf = ConfiguredCategoryTitles[category]
+    local targetId = (targetConf and targetConf.Id) or (category == "Luck" and "beast_god" or category == "Wins" and "hall_of_famer" or "eternity")
+    local targetName = (targetConf and targetConf.Name) or targetId
+
+    -- Permite override por preferência caso definida
     local prefConfigKey = "Selected" .. category .. "Title"
     local prefTitleId = Config[prefConfigKey]
-    if prefTitleId and prefTitleId ~= "best" then
-        for _, t in ipairs(list) do
-            if t.Id == prefTitleId then
-                targetTitle = t
-                break
-            end
+    if prefTitleId and prefTitleId ~= "best" and prefTitleId ~= targetId then
+        targetId = prefTitleId
+        targetName = getTitleDisplayName(targetId)
+    end
+
+    pcall(function()
+        if RemoteEquipTitle then
+            RemoteEquipTitle:InvokeServer(targetId)
         end
-    end
-    
-    -- 2. Se for 'best' ou não configurado, pega o de maior valor desbloqueado
-    if not targetTitle then
-        for _, t in ipairs(list) do
-            if owned[t.Id] then
-                targetTitle = t
-                break
-            end
-        end
-    end
-    
-    -- 3. Se a lista de desbloqueados não puder ser lida pelo server, tenta do maior para o menor
-    if not targetTitle then
-        for _, t in ipairs(list) do
-            local success = false
-            pcall(function()
-                if RemoteEquipTitle then
-                    local ret = RemoteEquipTitle:InvokeServer(t.Id)
-                    if ret == true or ret == nil then
-                        targetTitle = t
-                        success = true
-                    end
-                end
-            end)
-            if success and targetTitle then break end
-        end
-    else
-        pcall(function()
-            if RemoteEquipTitle then
-                RemoteEquipTitle:InvokeServer(targetTitle.Id)
-            end
-        end)
-    end
-    
-    if targetTitle then
-        CurrentEquippedTitle = targetTitle.Id
-        Config.ActiveTitleCategory = category
-        pcall(saveConfig)
-        updateCornerTitlesVisual()
-        updateHubTitleCard()
-        
-        local catEmoji = (category == "Luck" and "🍀" or category == "Wins" and "🏆" or "🪙")
-        local catName = (category == "Luck" and "Sorte" or category == "Wins" and "Vitória" or "Token")
-        pcall(function()
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = catEmoji .. " Título de " .. catName,
-                Text = "Equipado com Sucesso: " .. targetTitle.Name,
-                Duration = 3,
-            })
-        end)
-    end
+    end)
+
+    CurrentEquippedTitle = targetId
+    Config.ActiveTitleCategory = category
+    pcall(saveConfig)
+    updateCornerTitlesVisual()
+    updateHubTitleCard()
+
+    local catEmoji = (category == "Luck" and "🍀" or category == "Wins" and "🏆" or "🪙")
+    local catName = (category == "Luck" and "Sorte" or category == "Wins" and "Vitória" or "Token")
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = catEmoji .. " Título de " .. catName,
+            Text = "Equipado com Sucesso: " .. targetName,
+            Duration = 3,
+        })
+    end)
 end
 
 -- ══════════════════════════════════════════════════════════════
@@ -2772,9 +2746,9 @@ makeDraggable(MiniBar, MiniBar)
 -- ══════════════════════════════════════════════════════════════
 local CornerTitlesHUD = Instance.new("Frame")
 CornerTitlesHUD.Name = "CornerTitlesHUD"
-CornerTitlesHUD.Size = UDim2.new(0, 176, 0, 142)
+CornerTitlesHUD.Size = UDim2.new(0, 186, 0, 142)
 -- Posição exatamente no canto inferior direito da tela (área assinalada na foto pelo usuário)
-CornerTitlesHUD.Position = UDim2.new(1, -225, 1, -200)
+CornerTitlesHUD.Position = UDim2.new(1, -235, 1, -200)
 CornerTitlesHUD.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
 CornerTitlesHUD.BackgroundTransparency = 0.05
 CornerTitlesHUD.BorderSizePixel = 0
@@ -2905,14 +2879,16 @@ local function createQuickTitleButton(parent, category, labelText, defaultAccent
     textLabel.TextXAlignment = Enum.TextXAlignment.Left
     textLabel.Parent = btn
 
+    local titleShortName = (category == "Luck" and "Beast God" or category == "Wins" and "Hall of Famer" or "Eternity")
+
     local statusBadge = Instance.new("TextLabel")
     statusBadge.Name = "Badge"
-    statusBadge.Size = UDim2.new(0, 44, 0, 18)
-    statusBadge.Position = UDim2.new(1, -50, 0.5, -9)
+    statusBadge.Size = UDim2.new(0, 88, 0, 18)
+    statusBadge.Position = UDim2.new(1, -94, 0.5, -9)
     statusBadge.BackgroundColor3 = Color3.fromRGB(34, 42, 58)
     statusBadge.BackgroundTransparency = 0.1
-    statusBadge.Text = "EQUIPAR"
-    statusBadge.TextColor3 = Color3.fromRGB(160, 175, 205)
+    statusBadge.Text = titleShortName
+    statusBadge.TextColor3 = Color3.fromRGB(185, 200, 230)
     statusBadge.TextSize = 8.5
     statusBadge.Font = Enum.Font.GothamBold
     statusBadge.Parent = btn
@@ -2929,7 +2905,7 @@ local function createQuickTitleButton(parent, category, labelText, defaultAccent
             btnStroke.Color = defaultAccent
             btnStroke.Thickness = 1.6
             btnStroke.Transparency = 0.0
-            statusBadge.Text = "ATIVO"
+            statusBadge.Text = titleShortName .. " ✓"
             statusBadge.BackgroundColor3 = defaultAccent
             statusBadge.TextColor3 = Color3.fromRGB(10, 12, 16)
         else
@@ -2939,9 +2915,9 @@ local function createQuickTitleButton(parent, category, labelText, defaultAccent
             btnStroke.Color = Color3.fromRGB(48, 56, 78)
             btnStroke.Thickness = 1.0
             btnStroke.Transparency = 0.3
-            statusBadge.Text = "EQUIPAR"
+            statusBadge.Text = titleShortName
             statusBadge.BackgroundColor3 = Color3.fromRGB(34, 42, 58)
-            statusBadge.TextColor3 = Color3.fromRGB(160, 175, 205)
+            statusBadge.TextColor3 = Color3.fromRGB(185, 200, 230)
         end
     end
 
@@ -3814,15 +3790,15 @@ createToggle(BossTitlesTab, "Exibir Painel de Títulos no Canto da Tela", Config
     saveConfig()
 end)
 
-createButton(BossTitlesTab, "🍀 Equipar Melhor Título de Sorte", false, function()
+createButton(BossTitlesTab, "🍀 Equipar Beast God (Sorte +500%)", false, function()
     equipCategoryTitle("Luck")
 end)
 
-createButton(BossTitlesTab, "🏆 Equipar Melhor Título de Vitória", false, function()
+createButton(BossTitlesTab, "🏆 Equipar Hall of Famer (Vitória +500%)", false, function()
     equipCategoryTitle("Wins")
 end)
 
-createButton(BossTitlesTab, "🪙 Equipar Melhor Título de Token", false, function()
+createButton(BossTitlesTab, "🪙 Equipar Eternity (Token +500%)", false, function()
     equipCategoryTitle("Tokens")
 end)
 
