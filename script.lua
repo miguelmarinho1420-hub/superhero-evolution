@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791219835
+local SCRIPT_VERSION_TIMESTAMP = 1791220445
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -430,19 +430,46 @@ local BossPausedMemory = nil
 local IsResumingFromBoss = false
 local BossFightStartTime = 0
 
+local function getActiveBossModel()
+    local char = LocalPlayer.Character
+    local bossStage = workspace:FindFirstChild("BossFightStage")
+    if bossStage then
+        for _, m in ipairs(bossStage:GetChildren()) do
+            if m:IsA("Model") and m ~= char then
+                local hum = m:FindFirstChildOfClass("Humanoid")
+                if not hum or hum.Health > 0 then
+                    return m
+                end
+            end
+        end
+    end
+    
+    for _, c in ipairs(workspace:GetChildren()) do
+        if c:IsA("Model") and c ~= char and Players:GetPlayerFromCharacter(c) == nil then
+            local n = c.Name:lower()
+            if n:find("boss") or n:find("thanos") or c:GetAttribute("BEName") then
+                local hum = c:FindFirstChildOfClass("Humanoid")
+                if not hum or hum.Health > 0 then
+                    return c
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function isPlayerPhysicallyInBoss()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
-    -- Arena do Boss fica em (0, 84, -400)
+    -- Arena do Boss fica em torno de (0, 84, -400)
     local dist = (hrp.Position - Vector3.new(0, 84, -400)).Magnitude
     if dist < 450 then return true end
     
-    -- Verifica pasta BossFightStage
-    local bossStage = workspace:FindFirstChild("BossFightStage")
-    if bossStage then
-        local bp = bossStage:FindFirstChildWhichIsA("BasePart", true)
+    local bossModel = getActiveBossModel()
+    if bossModel then
+        local bp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart or bossModel:FindFirstChildWhichIsA("BasePart")
         if bp and (bp.Position - hrp.Position).Magnitude < 400 then
             return true
         end
@@ -450,13 +477,43 @@ local function isPlayerPhysicallyInBoss()
     return false
 end
 
+-- Determina com 100% de precisão se o Boss REALMENTE apareceu
+local function isBossActuallyPresent()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false, nil end
+    
+    -- Se o jogador está no Mundo 10 (Endless/Lobby, X >= 6350), ele não está no boss
+    if hrp.Position.X >= 6350 then
+        return false, nil
+    end
+    
+    local inArena = isPlayerPhysicallyInBoss()
+    if not inArena then return false, nil end
+    
+    -- 1. Verifica se a barra de vida do Boss está visível na tela
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+    local bhb = top and top:FindFirstChild("BossHealthBar")
+    local isBhbVisible = (bhb and bhb.Visible == true)
+    
+    -- 2. Verifica se o modelo do Boss está presente na arena
+    local bossModel = getActiveBossModel()
+    
+    -- O boss só é considerado presente se a barra de vida estiver visível OU o modelo do boss existir
+    if isBhbVisible or bossModel ~= nil then
+        return true, bossModel
+    end
+    
+    return false, nil
+end
+
 local function pauseAllFunctionsForBoss(source)
     if IsInBossFight then return end
     
-    -- Se o jogador está no Mundo 10 (Endless/Lobby) e não foi confirmado estar no boss, ignora falso positivo
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp and hrp.Position.X >= 6350 and not isPlayerPhysicallyInBoss() and not tostring(source):find("Confirmado") then
+    -- REGRA CRÍTICA: SÓ É PRA PAUSAR QUANDO O BOSS REALMENTE APARECER
+    local bossPresent, bossModel = isBossActuallyPresent()
+    if not bossPresent then
         return
     end
     
@@ -472,8 +529,7 @@ local function pauseAllFunctionsForBoss(source)
     }
     
     print("══════════════════════════════════════════════════════")
-    print(string.format("[AUTO BOSS] Entrando no Boss (%s)!", tostring(source or "Evento")))
-    print("[AUTO BOSS] PAUSANDO TODAS AS OUTRAS FUNÇÕES:")
+    print(string.format("[AUTO BOSS] Boss Apareceu (%s)! PAUSANDO TODAS AS OUTRAS FUNÇÕES:", tostring(source or "Arena")))
     if BossPausedMemory.AutoEndless then print("  -> Auto Endless PAUSADO") end
     if BossPausedMemory.AutoWin then print("  -> Auto Win PAUSADO") end
     if BossPausedMemory.FastClick then print("  -> Auto Click PAUSADO") end
@@ -498,8 +554,8 @@ local function pauseAllFunctionsForBoss(source)
     
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "⚔️ Entrando no Boss!",
-            Text = "Todas as outras funções foram PAUSADAS até o Boss morrer.",
+            Title = "⚔️ Boss Apareceu!",
+            Text = "O Boss apareceu! Todas as outras funções foram PAUSADAS até ele morrer.",
             Duration = 3.5,
         })
     end)
@@ -510,8 +566,8 @@ local function resumeFunctionsAfterBoss(reason)
     IsResumingFromBoss = true
     
     print("══════════════════════════════════════════════════════")
-    print(string.format("[AUTO BOSS] Boss finalizado (%s)!", tostring(reason or "Derrotado")))
-    print("[AUTO BOSS] Retomando funções...")
+    print(string.format("[AUTO BOSS] Boss morreu / finalizado (%s)!", tostring(reason or "Derrotado")))
+    print("[AUTO BOSS] Retomando todas as funções anteriores...")
     print("══════════════════════════════════════════════════════")
     
     if BossStatusCard and BossStatusCard.Update then
@@ -2329,7 +2385,7 @@ spawnThread(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- CONEXÕES & EVENTOS DO AUTO BOSS (SÓ ENTRA E PAUSA O RESTO)
+-- CONEXÕES & EVENTOS DO AUTO BOSS (SÓ ENTRA E PAUSA QUANDO O BOSS APARECER)
 -- ══════════════════════════════════════════════════════════════
 if RemoteBossEventPrompt then
     table.insert(ActiveConnections, RemoteBossEventPrompt.OnClientEvent:Connect(function(...)
@@ -2337,13 +2393,7 @@ if RemoteBossEventPrompt then
             if RemoteBossEventResponse then
                 RemoteBossEventResponse:FireServer(true)
             end
-            task.defer(function()
-                teleportToBossArena()
-                task.wait(0.5)
-                if isPlayerPhysicallyInBoss() then
-                    pauseAllFunctionsForBoss("Entrou no Boss Confirmado")
-                end
-            end)
+            task.defer(teleportToBossArena)
         end
     end))
 end
@@ -2351,7 +2401,7 @@ end
 if RemoteBossEventCountdown then
     table.insert(ActiveConnections, RemoteBossEventCountdown.OnClientEvent:Connect(function(sec)
         if Config.AutoEnterBoss and sec and sec <= 5 and sec > 0 then
-            -- Apenas garante resposta afirmativa para entrar no boss
+            -- Apenas garante resposta afirmativa para participar do boss
             if RemoteBossEventResponse then
                 RemoteBossEventResponse:FireServer(true)
             end
@@ -2365,13 +2415,7 @@ if RemoteBossEventUpdate then
         local youJoined = (type(arg1) == "table" and arg1.youJoined) or nil
         if youJoined == true then
             if Config.AutoEnterBoss then
-                task.defer(function()
-                    teleportToBossArena()
-                    task.wait(0.5)
-                    if isPlayerPhysicallyInBoss() then
-                        pauseAllFunctionsForBoss("Entrou no Boss Confirmado (youJoined)")
-                    end
-                end)
+                task.defer(teleportToBossArena)
             end
         elseif phase == "Idle" or phase == "Finished" or phase == "Ended" then
             if IsInBossFight then
@@ -2399,28 +2443,13 @@ if RemoteTitlesUpdated then
     end))
 end
 
--- Monitoramento Reativo: Barra de Vida do Boss e Popups In-game
+-- Monitoramento Reativo: SÓ PAUSA AS OUTRAS FUNÇÕES QUANDO O BOSS REALMENTE APARECER
 spawnThread(function()
-    local wasBhbVisible = false
     while true do
         pcall(function()
+            -- Aceita popup in-game de convite se aparecer na tela
             local pgui = LocalPlayer:FindFirstChild("PlayerGui")
             local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
-            local bhb = top and top:FindFirstChild("BossHealthBar")
-            local isBhbVisible = (bhb and bhb.Visible == true)
-            
-            -- Detecta início do Boss somente se a barra estiver visível E o jogador estiver na arena do boss
-            if isBhbVisible and not IsInBossFight and Config.AutoEnterBoss and isPlayerPhysicallyInBoss() then
-                pauseAllFunctionsForBoss("Barra de Vida Ativa na Arena")
-            end
-            
-            -- Detecta morte do Boss quando a barra de vida some estando em combate
-            if wasBhbVisible and not isBhbVisible and IsInBossFight then
-                resumeFunctionsAfterBoss("Barra de Vida Desapareceu (Boss Derrotado)")
-            end
-            wasBhbVisible = isBhbVisible
-            
-            -- Se aparecer o popup BossFightInvite na tela, aceita automaticamente
             if Config.AutoEnterBoss and top then
                 local bfi = top:FindFirstChild("BossFightInvite")
                 if bfi and bfi.Visible then
@@ -2432,17 +2461,24 @@ spawnThread(function()
                     if RemoteBossEventResponse then
                         RemoteBossEventResponse:FireServer(true)
                     end
-                    task.defer(function()
-                        teleportToBossArena()
-                        task.wait(0.5)
-                        if isPlayerPhysicallyInBoss() then
-                            pauseAllFunctionsForBoss("Popup de Convite Aceito Confirmado")
-                        end
-                    end)
+                    task.defer(teleportToBossArena)
                 end
             end
+
+            local bossPresent, bossModel = isBossActuallyPresent()
             
-            -- Se estiver no Boss, ataca continuamente
+            -- REGRA PRINCIPAL DO USUÁRIO: SÓ PAUSA QUANDO O BOSS APARECER!
+            if bossPresent and not IsInBossFight and Config.AutoEnterBoss then
+                local bName = (bossModel and bossModel.Name) or "Chefe"
+                pauseAllFunctionsForBoss(string.format("Boss '%s' Apareceu na Arena", bName))
+            end
+            
+            -- QUANDO O BOSS MORRER / SUMIR DA ARENA, DESPAUSA AS FUNÇÕES
+            if not bossPresent and IsInBossFight then
+                resumeFunctionsAfterBoss("Boss Derrotado / Desapareceu")
+            end
+            
+            -- Durante o combate contra o Boss: apenas ataca os socos continuamente
             if IsInBossFight then
                 if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                 if RemotePlayerClick then RemotePlayerClick:FireServer() end
@@ -2458,15 +2494,10 @@ spawnThread(function()
         task.wait(1.0)
         pcall(function()
             if IsInBossFight then
-                local inBoss = isPlayerPhysicallyInBoss()
-                local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-                local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
-                local bhb = top and top:FindFirstChild("BossHealthBar")
-                local isBhbVisible = (bhb and bhb.Visible == true)
-                
-                -- Se não está na arena e não tem barra de vida de boss, despausa imediatamente
-                if not inBoss and not isBhbVisible then
-                    resumeFunctionsAfterBoss("Watchdog: Fora da Arena do Boss")
+                local bossPresent = isBossActuallyPresent()
+                -- Se o boss não está mais presente na arena, despausa imediatamente
+                if not bossPresent then
+                    resumeFunctionsAfterBoss("Watchdog: Boss não está mais presente na arena")
                 end
                 
                 -- Se passar de 3 minutos no boss, despausa por segurança
