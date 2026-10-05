@@ -13,7 +13,17 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791218528
+local SCRIPT_VERSION_TIMESTAMP = 1791219835
+
+-- Conexão em segundo plano com o MCP Bridge (se disponível)
+task.spawn(function()
+    pcall(function()
+        if not getgenv().MCP_Loaded then
+            local bridgeUrl = getgenv().BridgeURL or "localhost:16384"
+            pcall(function() loadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))() end)
+        end
+    end)
+end)
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -105,6 +115,7 @@ local RemoteBossEventCountdown = Remotes and Remotes:FindFirstChild("BossEventCo
 local RemoteBossEventUpdate = Remotes and Remotes:FindFirstChild("BossEventUpdate")
 local RemoteBossEventReward = Remotes and Remotes:FindFirstChild("BossEventReward")
 local RemoteBossEventRequestState = Remotes and Remotes:FindFirstChild("BossEventRequestState")
+local RemoteOpenEndlessJoin = Remotes and Remotes:FindFirstChild("OpenEndlessJoin")
 
 -- ══════════════════════════════════════════════════════════════
 -- CONFIGURAÇÕES & ESTADO
@@ -136,7 +147,7 @@ local Config = {
     EndlessWorld = "world10", -- Sempre padrão no melhor mundo (Mundo 10)
     
     -- 5. Auto Boss (Prioridade Total: pausa todas as outras funções até o Boss morrer)
-    AutoEnterBoss = true,
+    AutoEnterBoss = false,
     
     -- 6. Títulos Rápidos (HUD no Canto Inferior Direito)
     ShowCornerTitles = true,
@@ -417,12 +428,42 @@ end
 local IsInBossFight = false
 local BossPausedMemory = nil
 local IsResumingFromBoss = false
+local BossFightStartTime = 0
+
+local function isPlayerPhysicallyInBoss()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    -- Arena do Boss fica em (0, 84, -400)
+    local dist = (hrp.Position - Vector3.new(0, 84, -400)).Magnitude
+    if dist < 450 then return true end
+    
+    -- Verifica pasta BossFightStage
+    local bossStage = workspace:FindFirstChild("BossFightStage")
+    if bossStage then
+        local bp = bossStage:FindFirstChildWhichIsA("BasePart", true)
+        if bp and (bp.Position - hrp.Position).Magnitude < 400 then
+            return true
+        end
+    end
+    return false
+end
 
 local function pauseAllFunctionsForBoss(source)
     if IsInBossFight then return end
-    IsInBossFight = true
     
-    -- Registra exatamente o que estava ativo para ser retomado depois
+    -- Se o jogador está no Mundo 10 (Endless/Lobby) e não foi confirmado estar no boss, ignora falso positivo
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and hrp.Position.X >= 6350 and not isPlayerPhysicallyInBoss() and not tostring(source):find("Confirmado") then
+        return
+    end
+    
+    IsInBossFight = true
+    BossFightStartTime = os.clock()
+    
+    -- Salva o estado exato que estava rodando antes
     BossPausedMemory = {
         FastClick = Config.FastClick,
         AutoRebirth = Config.AutoRebirth,
@@ -440,15 +481,14 @@ local function pauseAllFunctionsForBoss(source)
     print("[AUTO BOSS] REGRA: NENHUMA OUTRA FUNÇÃO EXECUTARÁ ATÉ O BOSS MORRER!")
     print("══════════════════════════════════════════════════════")
     
-    -- Para imediatamente movimento residual de Win ou Endless
     pcall(function()
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hum then hum:Move(Vector3.zero, false) end
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:Move(Vector3.zero, false) end
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
         end
     end)
     
@@ -470,21 +510,20 @@ local function resumeFunctionsAfterBoss(reason)
     IsResumingFromBoss = true
     
     print("══════════════════════════════════════════════════════")
-    print(string.format("[AUTO BOSS] Boss morreu / finalizado (%s)!", tostring(reason or "Derrotado")))
-    print("[AUTO BOSS] Aguardando 2.0s para coletar recompensas e despausar...")
+    print(string.format("[AUTO BOSS] Boss finalizado (%s)!", tostring(reason or "Derrotado")))
+    print("[AUTO BOSS] Retomando funções...")
     print("══════════════════════════════════════════════════════")
     
     if BossStatusCard and BossStatusCard.Update then
-        BossStatusCard.Update("🏆 Boss Derrotado! Despausando funções...", Themes.AccentGreen)
+        BossStatusCard.Update("🏆 Boss Finalizado! Despausando...", Themes.AccentGreen)
     end
-    
-    task.wait(2.0)
     
     IsInBossFight = false
     IsResumingFromBoss = false
+    BossFightStartTime = 0
     
     if BossPausedMemory then
-        print("[AUTO BOSS] DESPAUSANDO as funções anteriores com sucesso:")
+        print("[AUTO BOSS] DESPAUSANDO as funções anteriores:")
         if BossPausedMemory.AutoEndless then
             Config.AutoEndless = true
             if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(true, true) end
@@ -516,7 +555,7 @@ local function resumeFunctionsAfterBoss(reason)
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "🏆 Boss Derrotado!",
             Text = "O Boss morreu. As funções anteriores foram DESPAUSADAS!",
-            Duration = 4,
+            Duration = 3.5,
         })
     end)
 end
@@ -947,7 +986,7 @@ local lastMapCheck = 0
 
 local function getCurrentMap()
     local now = os.clock()
-    if cachedCurrentMap and (now - lastMapCheck < 1.0) then
+    if cachedCurrentMap and (now - lastMapCheck < 0.5) then
         return cachedCurrentMap
     end
     lastMapCheck = now
@@ -955,26 +994,24 @@ local function getCurrentMap()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then
-        cachedCurrentMap = workspace:FindFirstChild("Map")
+        cachedCurrentMap = workspace:FindFirstChild("Map10") or workspace:FindFirstChild("Map")
         return cachedCurrentMap
     end
     
-    local myPos = hrp.Position
-    local bestMap = nil
-    local minDist = math.huge
-    for _, child in ipairs(workspace:GetChildren()) do
-        if child.Name:match("^Map") then
-            local bp = child:FindFirstChildWhichIsA("BasePart", true)
-            if bp then
-                local dist = (bp.Position - myPos).Magnitude
-                if dist < minDist then
-                    minDist = dist
-                    bestMap = child
-                end
-            end
-        end
-    end
-    cachedCurrentMap = bestMap or workspace:FindFirstChild("Map")
+    local x = hrp.Position.X
+    local mapName = "Map"
+    if x >= 6350 then mapName = "Map10"
+    elseif x >= 5600 then mapName = "Map9"
+    elseif x >= 4850 then mapName = "Map8"
+    elseif x >= 4100 then mapName = "Map7"
+    elseif x >= 3350 then mapName = "Map6"
+    elseif x >= 2600 then mapName = "Map5"
+    elseif x >= 1850 then mapName = "Map4"
+    elseif x >= 1100 then mapName = "Map3"
+    elseif x >= 350 then mapName = "MapTest"
+    else mapName = "Map" end
+    
+    cachedCurrentMap = workspace:FindFirstChild(mapName) or workspace:FindFirstChild("Map10") or workspace:FindFirstChild("Map")
     return cachedCurrentMap
 end
 
@@ -2139,54 +2176,72 @@ local function enterEndlessPortal()
     local curMap = getCurrentMap()
     local curMapName = curMap and curMap.Name or "Map"
     if curMapName ~= targetMapName and RemoteRequestWorldChange then
-        RemoteRequestWorldChange:InvokeServer(targetWorldNum)
-        task.wait(1.2)
-        if not Config.AutoEndless then return false end
-        local newChar, newHrp, newHum = waitForCharacterAlive(4)
+        pcall(function() RemoteRequestWorldChange:InvokeServer(targetWorldNum) end)
+        task.wait(1.0)
+        if not Config.AutoEndless or IsInBossFight then return false end
+        local newChar, newHrp, newHum = waitForCharacterAlive(3)
         if not newHrp or not newHum or newHum.Health <= 0 then return false end
         char = newChar
         hrp = newHrp
         hum = newHum
     end
     
-    if not Config.AutoEndless then return false end
-    local portal, worldNum = getTargetEndlessPortal(targetWorldNum)
-    if not portal then return false end
-    local hitbox = portal:FindFirstChild("Hitbox")
-    if not hitbox or not hitbox:IsA("BasePart") then return false end
+    if not Config.AutoEndless or IsInBossFight then return false end
     
-    hrp.CFrame = hitbox.CFrame + Vector3.new(0, 1.5, 0)
-    task.wait(0.15)
-    if not Config.AutoEndless then return false end
-    if firetouchinterest then
+    local portal, worldNum = getTargetEndlessPortal(targetWorldNum)
+    local hitbox = portal and portal:FindFirstChild("Hitbox")
+    local hitboxCFrame = nil
+    
+    if hitbox and hitbox:IsA("BasePart") then
+        hitboxCFrame = hitbox.CFrame
+    elseif targetWorldNum == 10 then
+        -- CFrame exato e verificado do Hitbox do Portal do Mundo 10
+        hitboxCFrame = CFrame.new(6704.42, 5.29, 31.20)
+    end
+    
+    if not hitboxCFrame then return false end
+    
+    -- 1. Teleporta o personagem diretamente no portal
+    hrp.CFrame = hitboxCFrame + Vector3.new(0, 1.5, 0)
+    task.wait(0.08)
+    if not Config.AutoEndless or IsInBossFight then return false end
+    
+    -- 2. Toca o hitbox se a parte estiver carregada
+    if hitbox and firetouchinterest then
         firetouchinterest(hrp, hitbox, 0)
         task.wait(0.04)
         firetouchinterest(hrp, hitbox, 1)
     end
-    task.wait(0.15)
-    if not Config.AutoEndless then return false end
-    if RemoteEndlessStateRequest then pcall(function() RemoteEndlessStateRequest:InvokeServer(worldNum) end) end
-    task.wait(0.15)
-    if not Config.AutoEndless then return false end
-    if RemoteEndlessJoinRequest then RemoteEndlessJoinRequest:FireServer(worldNum) end
-    task.wait(0.2)
     
+    -- 3. Invoca Remotes oficiais do Endless
+    if RemoteOpenEndlessJoin then pcall(function() RemoteOpenEndlessJoin:FireServer(worldNum) end) end
+    if RemoteEndlessStateRequest then pcall(function() RemoteEndlessStateRequest:InvokeServer(worldNum) end) end
+    if RemoteEndlessJoinRequest then
+        pcall(function() RemoteEndlessJoinRequest:FireServer(worldNum) end)
+        pcall(function() RemoteEndlessJoinRequest:FireServer(tostring(worldNum)) end)
+    end
+    
+    -- 4. Clica no botão Join do menu EndlessJoin se abrir
+    task.wait(0.12)
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         local screenGui = pgui and pgui:FindFirstChild("ScreenGui")
         local menus = screenGui and screenGui:FindFirstChild("Menus")
         local ej = menus and menus:FindFirstChild("EndlessJoin")
         if ej then
-            local main = ej:FindFirstChild("Container") and ej.Container:FindFirstChild("Main")
-            local joinBtn = main and main:FindFirstChild("Join")
-            if joinBtn and joinBtn:IsA("GuiButton") and firesignal then
-                firesignal(joinBtn.Activated)
-                firesignal(joinBtn.MouseButton1Click)
+            for _, btn in ipairs(ej:GetDescendants()) do
+                if btn:IsA("GuiButton") and (btn.Name:lower():find("join") or btn.Name:lower():find("enter") or (btn:IsA("TextButton") and btn.Text:lower():find("join"))) then
+                    if firesignal then
+                        firesignal(btn.Activated)
+                        firesignal(btn.MouseButton1Click)
+                    end
+                end
             end
-            task.wait(0.15)
+            task.wait(0.08)
             ej.Visible = false
         end
     end)
+    
     return isInsideEndless()
 end
 
@@ -2279,11 +2334,16 @@ end)
 if RemoteBossEventPrompt then
     table.insert(ActiveConnections, RemoteBossEventPrompt.OnClientEvent:Connect(function(...)
         if Config.AutoEnterBoss then
-            pauseAllFunctionsForBoss("Prompt de Convite")
             if RemoteBossEventResponse then
                 RemoteBossEventResponse:FireServer(true)
             end
-            task.defer(teleportToBossArena)
+            task.defer(function()
+                teleportToBossArena()
+                task.wait(0.5)
+                if isPlayerPhysicallyInBoss() then
+                    pauseAllFunctionsForBoss("Entrou no Boss Confirmado")
+                end
+            end)
         end
     end))
 end
@@ -2291,11 +2351,10 @@ end
 if RemoteBossEventCountdown then
     table.insert(ActiveConnections, RemoteBossEventCountdown.OnClientEvent:Connect(function(sec)
         if Config.AutoEnterBoss and sec and sec <= 5 and sec > 0 then
-            pauseAllFunctionsForBoss("Countdown Final")
+            -- Apenas garante resposta afirmativa para entrar no boss
             if RemoteBossEventResponse then
                 RemoteBossEventResponse:FireServer(true)
             end
-            task.defer(teleportToBossArena)
         end
     end))
 end
@@ -2304,12 +2363,17 @@ if RemoteBossEventUpdate then
     table.insert(ActiveConnections, RemoteBossEventUpdate.OnClientEvent:Connect(function(arg1, ...)
         local phase = (type(arg1) == "table" and arg1.phase) or (type(arg1) == "string" and arg1) or nil
         local youJoined = (type(arg1) == "table" and arg1.youJoined) or nil
-        if phase == "Active" or youJoined == true then
+        if youJoined == true then
             if Config.AutoEnterBoss then
-                pauseAllFunctionsForBoss("Fase Ativa / Entrada")
-                task.defer(teleportToBossArena)
+                task.defer(function()
+                    teleportToBossArena()
+                    task.wait(0.5)
+                    if isPlayerPhysicallyInBoss() then
+                        pauseAllFunctionsForBoss("Entrou no Boss Confirmado (youJoined)")
+                    end
+                end)
             end
-        elseif phase == "Idle" then
+        elseif phase == "Idle" or phase == "Finished" or phase == "Ended" then
             if IsInBossFight then
                 resumeFunctionsAfterBoss("Fase Idle / Boss Finalizado")
             end
@@ -2345,13 +2409,12 @@ spawnThread(function()
             local bhb = top and top:FindFirstChild("BossHealthBar")
             local isBhbVisible = (bhb and bhb.Visible == true)
             
-            -- Detecta início do Boss pela barra de vida
-            if isBhbVisible and not IsInBossFight and Config.AutoEnterBoss then
-                pauseAllFunctionsForBoss("Barra de Vida Ativa")
-                task.defer(teleportToBossArena)
+            -- Detecta início do Boss somente se a barra estiver visível E o jogador estiver na arena do boss
+            if isBhbVisible and not IsInBossFight and Config.AutoEnterBoss and isPlayerPhysicallyInBoss() then
+                pauseAllFunctionsForBoss("Barra de Vida Ativa na Arena")
             end
             
-            -- Detecta morte do Boss quando a barra de vida some
+            -- Detecta morte do Boss quando a barra de vida some estando em combate
             if wasBhbVisible and not isBhbVisible and IsInBossFight then
                 resumeFunctionsAfterBoss("Barra de Vida Desapareceu (Boss Derrotado)")
             end
@@ -2369,18 +2432,49 @@ spawnThread(function()
                     if RemoteBossEventResponse then
                         RemoteBossEventResponse:FireServer(true)
                     end
-                    pauseAllFunctionsForBoss("Popup de Convite Aceito")
-                    task.defer(teleportToBossArena)
+                    task.defer(function()
+                        teleportToBossArena()
+                        task.wait(0.5)
+                        if isPlayerPhysicallyInBoss() then
+                            pauseAllFunctionsForBoss("Popup de Convite Aceito Confirmado")
+                        end
+                    end)
                 end
             end
             
-            -- Se estiver no Boss, apenas ataca os socos básicos para ajudar a derrotar o boss
+            -- Se estiver no Boss, ataca continuamente
             if IsInBossFight then
                 if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                 if RemotePlayerClick then RemotePlayerClick:FireServer() end
             end
         end)
         task.wait(0.12)
+    end
+end)
+
+-- WATCHDOG DE SEGURANÇA: Garante que IsInBossFight NUNCA fique travado
+spawnThread(function()
+    while true do
+        task.wait(1.0)
+        pcall(function()
+            if IsInBossFight then
+                local inBoss = isPlayerPhysicallyInBoss()
+                local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+                local top = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Top")
+                local bhb = top and top:FindFirstChild("BossHealthBar")
+                local isBhbVisible = (bhb and bhb.Visible == true)
+                
+                -- Se não está na arena e não tem barra de vida de boss, despausa imediatamente
+                if not inBoss and not isBhbVisible then
+                    resumeFunctionsAfterBoss("Watchdog: Fora da Arena do Boss")
+                end
+                
+                -- Se passar de 3 minutos no boss, despausa por segurança
+                if BossFightStartTime > 0 and (os.clock() - BossFightStartTime > 180) then
+                    resumeFunctionsAfterBoss("Watchdog: Tempo Limite Excedido (3m)")
+                end
+            end
+        end)
     end
 end)
 
