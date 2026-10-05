@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791217687
+local SCRIPT_VERSION_TIMESTAMP = 1791217860
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -2772,11 +2772,11 @@ makeDraggable(MiniBar, MiniBar)
 -- ══════════════════════════════════════════════════════════════
 local CornerTitlesHUD = Instance.new("Frame")
 CornerTitlesHUD.Name = "CornerTitlesHUD"
-CornerTitlesHUD.Size = UDim2.new(0, 165, 0, 134)
--- Posição exatamente no canto inferior direito da tela (área assinalada na foto)
-CornerTitlesHUD.Position = UDim2.new(1, -215, 1, -195)
-CornerTitlesHUD.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
-CornerTitlesHUD.BackgroundTransparency = 0.12
+CornerTitlesHUD.Size = UDim2.new(0, 176, 0, 142)
+-- Posição exatamente no canto inferior direito da tela (área assinalada na foto pelo usuário)
+CornerTitlesHUD.Position = UDim2.new(1, -225, 1, -200)
+CornerTitlesHUD.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+CornerTitlesHUD.BackgroundTransparency = 0.05
 CornerTitlesHUD.BorderSizePixel = 0
 CornerTitlesHUD.Active = true
 CornerTitlesHUD.Visible = (Config.ShowCornerTitles ~= false)
@@ -2787,14 +2787,14 @@ HUDCorner.CornerRadius = UDim.new(0, 10)
 HUDCorner.Parent = CornerTitlesHUD
 
 local HUDStroke = Instance.new("UIStroke")
-HUDStroke.Thickness = 1.4
-HUDStroke.Color = Color3.fromRGB(56, 68, 95)
-HUDStroke.Transparency = 0.2
+HUDStroke.Thickness = 1.5
+HUDStroke.Color = Color3.fromRGB(60, 75, 110)
+HUDStroke.Transparency = 0.1
 HUDStroke.Parent = CornerTitlesHUD
 
 local HUDHeader = Instance.new("Frame")
 HUDHeader.Name = "HUDHeader"
-HUDHeader.Size = UDim2.new(1, 0, 0, 24)
+HUDHeader.Size = UDim2.new(1, 0, 0, 26)
 HUDHeader.BackgroundTransparency = 1
 HUDHeader.Parent = CornerTitlesHUD
 
@@ -2804,8 +2804,8 @@ HUDTitle.Size = UDim2.new(1, -30, 1, 0)
 HUDTitle.Position = UDim2.new(0, 10, 0, 0)
 HUDTitle.BackgroundTransparency = 1
 HUDTitle.Text = "🏷️ TÍTULOS RÁPIDOS"
-HUDTitle.TextColor3 = Themes.TextDim
-HUDTitle.TextSize = 10
+HUDTitle.TextColor3 = Color3.fromRGB(210, 222, 250)
+HUDTitle.TextSize = 11
 HUDTitle.Font = Enum.Font.GothamBold
 HUDTitle.TextXAlignment = Enum.TextXAlignment.Left
 HUDTitle.Parent = HUDHeader
@@ -2813,12 +2813,12 @@ HUDTitle.Parent = HUDHeader
 local HUDMinimizeBtn = Instance.new("TextButton")
 HUDMinimizeBtn.Name = "Minimize"
 HUDMinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
-HUDMinimizeBtn.Position = UDim2.new(1, -24, 0, 2)
-HUDMinimizeBtn.BackgroundColor3 = Color3.fromRGB(24, 28, 40)
-HUDMinimizeBtn.BackgroundTransparency = 0.3
+HUDMinimizeBtn.Position = UDim2.new(1, -24, 0, 3)
+HUDMinimizeBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 50)
+HUDMinimizeBtn.BackgroundTransparency = 0.1
 HUDMinimizeBtn.BorderSizePixel = 0
 HUDMinimizeBtn.Text = "—"
-HUDMinimizeBtn.TextColor3 = Themes.TextDim
+HUDMinimizeBtn.TextColor3 = Color3.fromRGB(200, 210, 235)
 HUDMinimizeBtn.TextSize = 11
 HUDMinimizeBtn.Font = Enum.Font.GothamBold
 HUDMinimizeBtn.Parent = HUDHeader
@@ -2829,16 +2829,17 @@ HUDMinCorner.Parent = HUDMinimizeBtn
 
 local HUDBody = Instance.new("Frame")
 HUDBody.Name = "HUDBody"
-HUDBody.Size = UDim2.new(1, -16, 0, 100)
-HUDBody.Position = UDim2.new(0, 8, 0, 26)
+HUDBody.Size = UDim2.new(1, -16, 0, 106)
+HUDBody.Position = UDim2.new(0, 8, 0, 28)
 HUDBody.BackgroundTransparency = 1
 HUDBody.Parent = CornerTitlesHUD
 
 local HUDList = Instance.new("UIListLayout")
 HUDList.SortOrder = Enum.SortOrder.LayoutOrder
-HUDList.Padding = UDim.new(0, 5)
+HUDList.Padding = UDim.new(0, 6)
 HUDList.Parent = HUDBody
 
+makeDraggable(CornerTitlesHUD, CornerTitlesHUD)
 makeDraggable(CornerTitlesHUD, HUDHeader)
 
 local hudMinimized = false
@@ -2847,11 +2848,11 @@ HUDMinimizeBtn.Activated:Connect(function()
     if hudMinimized then
         HUDMinimizeBtn.Text = "+"
         HUDBody.Visible = false
-        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 165, 0, 24) }):Play()
+        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 176, 0, 26) }):Play()
     else
         HUDMinimizeBtn.Text = "—"
         HUDBody.Visible = true
-        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 165, 0, 134) }):Play()
+        TweenService:Create(CornerTitlesHUD, TweenInfo.new(0.2), { Size = UDim2.new(0, 176, 0, 142) }):Play()
     end
 end)
 HUDMinimizeBtn.MouseButton1Click:Connect(function()
@@ -2863,8 +2864,8 @@ local QuickTitleButtons = {}
 local function createQuickTitleButton(parent, category, labelText, defaultAccent, order)
     local btn = Instance.new("TextButton")
     btn.Name = "Btn_" .. category
-    btn.Size = UDim2.new(1, 0, 0, 28)
-    btn.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
     btn.BorderSizePixel = 0
     btn.Text = ""
     btn.AutoButtonColor = false
@@ -2872,47 +2873,47 @@ local function createQuickTitleButton(parent, category, labelText, defaultAccent
     btn.Parent = parent
 
     local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.CornerRadius = UDim.new(0, 7)
     btnCorner.Parent = btn
 
     local btnStroke = Instance.new("UIStroke")
     btnStroke.Thickness = 1.2
-    btnStroke.Color = Color3.fromRGB(42, 48, 65)
-    btnStroke.Transparency = 0.3
+    btnStroke.Color = Color3.fromRGB(48, 56, 78)
+    btnStroke.Transparency = 0.2
     btnStroke.Parent = btn
 
     local iconLabel = Instance.new("TextLabel")
     iconLabel.Name = "Icon"
-    iconLabel.Size = UDim2.new(0, 22, 1, 0)
+    iconLabel.Size = UDim2.new(0, 24, 1, 0)
     iconLabel.Position = UDim2.new(0, 8, 0, 0)
     iconLabel.BackgroundTransparency = 1
     iconLabel.Text = (category == "Luck" and "🍀" or category == "Wins" and "🏆" or "🪙")
-    iconLabel.TextSize = 13
+    iconLabel.TextSize = 14
     iconLabel.Font = Enum.Font.GothamBold
     iconLabel.TextXAlignment = Enum.TextXAlignment.Left
     iconLabel.Parent = btn
 
     local textLabel = Instance.new("TextLabel")
     textLabel.Name = "TitleText"
-    textLabel.Size = UDim2.new(1, -75, 1, 0)
-    textLabel.Position = UDim2.new(0, 30, 0, 0)
+    textLabel.Size = UDim2.new(1, -80, 1, 0)
+    textLabel.Position = UDim2.new(0, 32, 0, 0)
     textLabel.BackgroundTransparency = 1
     textLabel.Text = labelText
-    textLabel.TextColor3 = Themes.Text
-    textLabel.TextSize = 11
+    textLabel.TextColor3 = Color3.fromRGB(245, 248, 255)
+    textLabel.TextSize = 12
     textLabel.Font = Enum.Font.GothamBold
     textLabel.TextXAlignment = Enum.TextXAlignment.Left
     textLabel.Parent = btn
 
     local statusBadge = Instance.new("TextLabel")
     statusBadge.Name = "Badge"
-    statusBadge.Size = UDim2.new(0, 42, 0, 16)
-    statusBadge.Position = UDim2.new(1, -48, 0.5, -8)
-    statusBadge.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
-    statusBadge.BackgroundTransparency = 0.2
+    statusBadge.Size = UDim2.new(0, 44, 0, 18)
+    statusBadge.Position = UDim2.new(1, -50, 0.5, -9)
+    statusBadge.BackgroundColor3 = Color3.fromRGB(34, 42, 58)
+    statusBadge.BackgroundTransparency = 0.1
     statusBadge.Text = "EQUIPAR"
-    statusBadge.TextColor3 = Themes.TextDim
-    statusBadge.TextSize = 8
+    statusBadge.TextColor3 = Color3.fromRGB(160, 175, 205)
+    statusBadge.TextSize = 8.5
     statusBadge.Font = Enum.Font.GothamBold
     statusBadge.Parent = btn
 
@@ -2923,45 +2924,45 @@ local function createQuickTitleButton(parent, category, labelText, defaultAccent
     local function setVisual(isActive)
         if isActive then
             TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = (category == "Luck" and Color3.fromRGB(18, 44, 28) or category == "Wins" and Color3.fromRGB(46, 38, 16) or Color3.fromRGB(18, 36, 52))
+                BackgroundColor3 = (category == "Luck" and Color3.fromRGB(18, 48, 30) or category == "Wins" and Color3.fromRGB(52, 42, 16) or Color3.fromRGB(18, 40, 58))
             }):Play()
             btnStroke.Color = defaultAccent
-            btnStroke.Thickness = 1.5
+            btnStroke.Thickness = 1.6
             btnStroke.Transparency = 0.0
             statusBadge.Text = "ATIVO"
             statusBadge.BackgroundColor3 = defaultAccent
             statusBadge.TextColor3 = Color3.fromRGB(10, 12, 16)
         else
             TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+                BackgroundColor3 = Color3.fromRGB(25, 30, 42)
             }):Play()
-            btnStroke.Color = Color3.fromRGB(42, 48, 65)
+            btnStroke.Color = Color3.fromRGB(48, 56, 78)
             btnStroke.Thickness = 1.0
             btnStroke.Transparency = 0.3
             statusBadge.Text = "EQUIPAR"
-            statusBadge.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
-            statusBadge.TextColor3 = Themes.TextDim
+            statusBadge.BackgroundColor3 = Color3.fromRGB(34, 42, 58)
+            statusBadge.TextColor3 = Color3.fromRGB(160, 175, 205)
         end
     end
 
     btn.MouseEnter:Connect(function()
         if Config.ActiveTitleCategory ~= category then
-            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(30, 36, 48) }):Play()
+            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(35, 42, 58) }):Play()
         end
     end)
     btn.MouseLeave:Connect(function()
         if Config.ActiveTitleCategory ~= category then
-            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(22, 26, 36) }):Play()
+            TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(25, 30, 42) }):Play()
         end
     end)
 
     local function onButtonClicked()
         TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(1, -4, 0, 26)
+            Size = UDim2.new(1, -4, 0, 28)
         }):Play()
         task.wait(0.08)
         TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(1, 0, 0, 28)
+            Size = UDim2.new(1, 0, 0, 30)
         }):Play()
 
         equipCategoryTitle(category)
