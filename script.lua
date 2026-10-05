@@ -13,7 +13,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791169165
+local SCRIPT_VERSION_TIMESTAMP = 1791169581
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
@@ -1774,6 +1774,27 @@ local function getTargetEndlessPortal(targetWorldNum)
     local portal = endlessFolder and endlessFolder:FindFirstChild("Portal")
     if portal then return portal, targetWorldNum end
     
+    local curMap = getCurrentMap()
+    if curMap then
+        local curEndless = curMap:FindFirstChild("Endless")
+        local p = curEndless and curEndless:FindFirstChild("Portal")
+        if p then
+            local wNum = tonumber(string.match(curMap.Name, "%d+")) or (curMap.Name == "MapTest" and 2 or 10)
+            return p, wNum
+        end
+    end
+    
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child.Name:match("^Map") then
+            local endFolder = child:FindFirstChild("Endless")
+            local p = endFolder and endFolder:FindFirstChild("Portal")
+            if p then
+                local wNum = tonumber(string.match(child.Name, "%d+")) or (child.Name == "MapTest" and 2 or 10)
+                return p, wNum
+            end
+        end
+    end
+    
     local portals = CollectionService:GetTagged("EndlessPortal")
     for _, p in ipairs(portals) do
         local hb = p:FindFirstChild("Hitbox")
@@ -1787,6 +1808,7 @@ local function enterEndlessPortal()
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
+    if not Config.AutoEndless then return false end
     if isInsideEndless() then return true end
     
     local targetWorldNum = getSelectedEndlessWorldNum()
@@ -1796,31 +1818,36 @@ local function enterEndlessPortal()
     local curMapName = curMap and curMap.Name or "Map"
     if curMapName ~= targetMapName and RemoteRequestWorldChange then
         RemoteRequestWorldChange:InvokeServer(targetWorldNum)
-        task.wait(1.5)
-        local newChar, newHrp, newHum = waitForCharacterAlive(6)
+        task.wait(1.2)
+        if not Config.AutoEndless then return false end
+        local newChar, newHrp, newHum = waitForCharacterAlive(4)
         if not newHrp or not newHum or newHum.Health <= 0 then return false end
         char = newChar
         hrp = newHrp
         hum = newHum
     end
     
+    if not Config.AutoEndless then return false end
     local portal, worldNum = getTargetEndlessPortal(targetWorldNum)
     if not portal then return false end
     local hitbox = portal:FindFirstChild("Hitbox")
     if not hitbox or not hitbox:IsA("BasePart") then return false end
     
     hrp.CFrame = hitbox.CFrame + Vector3.new(0, 1.5, 0)
-    task.wait(0.2)
+    task.wait(0.15)
+    if not Config.AutoEndless then return false end
     if firetouchinterest then
         firetouchinterest(hrp, hitbox, 0)
-        task.wait(0.05)
+        task.wait(0.04)
         firetouchinterest(hrp, hitbox, 1)
     end
-    task.wait(0.2)
+    task.wait(0.15)
+    if not Config.AutoEndless then return false end
     if RemoteEndlessStateRequest then pcall(function() RemoteEndlessStateRequest:InvokeServer(worldNum) end) end
-    task.wait(0.2)
+    task.wait(0.15)
+    if not Config.AutoEndless then return false end
     if RemoteEndlessJoinRequest then RemoteEndlessJoinRequest:FireServer(worldNum) end
-    task.wait(0.3)
+    task.wait(0.2)
     
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -2546,7 +2573,7 @@ local function createToggle(parent, title, defaultState, callback)
     local lastToggle = 0
     local function onToggle()
         local now = tick()
-        if now - lastToggle < 0.15 then return end
+        if now - lastToggle < 0.2 then return end
         lastToggle = now
         isEnabled = not isEnabled
         updateVisuals()
@@ -2554,7 +2581,6 @@ local function createToggle(parent, title, defaultState, callback)
     end
     
     card.Activated:Connect(onToggle)
-    card.MouseButton1Click:Connect(onToggle)
     return {
         Set = function(val, suppressCallback)
             isEnabled = val
@@ -3025,6 +3051,25 @@ EndlessToggle = createToggle(EndlessTab, "Ativar Auto Endless (Ficar Parado até
     if val then
         Config.AutoWin = false
         if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
+    else
+        isDeadWaiting = false
+        endlessEnteredCFrame = nil
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hum then
+                hum.WalkSpeed = 16
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        end)
+        if EndlessStatsCard and EndlessStatsCard.Update then
+            EndlessStatsCard.Update("Desativado (Livre)", Themes.TextDim)
+        end
     end
     saveConfig()
 end)
