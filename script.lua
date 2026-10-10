@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791660884
+local SCRIPT_VERSION_TIMESTAMP = 1791661002
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2469,30 +2469,15 @@ function getHalloweenWaveNumber()
     return nil
 end
 
+-- Detecção matemática perfeita: verifica estritamente se o jogador está fisicamente dentro da arena de combate (distância < 180 studs do centro)
 function isInsideHalloweenArena()
-    -- Verificação 1: Atributo oficial do jogo no LocalPlayer
-    if LocalPlayer:GetAttribute("InEventArena") == "halloween_2026" then
-        return true
-    end
-    
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
-    -- Verificação 2: Proximidade física da arena de combate (distância < 180 studs do centro)
     local arenaCenter = getHalloweenArenaCenter()
     local dist = (hrp.Position - arenaCenter).Magnitude
-    if dist < 180 then
-        return true
-    end
-    
-    -- Verificação 3: Label de Onda ativa no HUD enquanto estiver na área da arena (Z > 500)
-    local wave = getHalloweenWaveNumber()
-    if wave and wave > 0 and hrp.Position.Z > 500 then
-        return true
-    end
-    
-    return false
+    return dist < 180
 end
 
 function clickHalloweenButton(btn)
@@ -2547,7 +2532,7 @@ function findVacantHalloweenPad()
         return targetPos
     end
     
-    -- Se o pad principal estiver ocupado, busca outro livre
+    -- Se o pad principal estiver ocupado por outro jogador, busca outro livre
     for _, pos in ipairs(HalloweenData.Pads) do
         if pos ~= targetPos then
             local occupied = false
@@ -2737,13 +2722,13 @@ function enterHalloweenArena()
         if RemotePartyCreate then
             RemotePartyCreate:FireServer(1)
         end
-        task.wait(0.15)
+        task.wait(0.2)
         if RemotePartyStart then
             RemotePartyStart:FireServer()
         end
     end)
     
-    task.wait(0.2)
+    task.wait(0.3)
     return isInsideHalloweenArena()
 end
 
