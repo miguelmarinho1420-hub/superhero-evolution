@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791656619
+local SCRIPT_VERSION_TIMESTAMP = 1791658118
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -989,63 +989,39 @@ local function claimPlaytimeRewards()
     if not Config.AutoClaimPlaytime or IsInBossFight then return end
     
     pcall(function()
-        -- 1. Varre e ativa os 12 botões de Recompensa de Tempo na UI (PlayerGui)
+        -- 1. Varre e ativa botões de Recompensa de Tempo na UI (PlayerGui)
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         if pgui then
-            for _, gui in ipairs(pgui:GetChildren()) do
-                if gui:IsA("ScreenGui") and not gui.Name:match("^SuperHeroEvolutionHub") then
-                    for _, desc in ipairs(gui:GetDescendants()) do
-                        if desc:IsA("GuiButton") then
-                            local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
-                            if text == "" then
-                                for _, c in ipairs(desc:GetChildren()) do
-                                    if c:IsA("TextLabel") and c.Visible then
-                                        text = c.Text:lower()
-                                        break
-                                    end
+            local sg = pgui:FindFirstChild("ScreenGui")
+            local ptMenu = sg and (sg:FindFirstChild("Playtime") or sg:FindFirstChild("Gifts") or (sg:FindFirstChild("Menus") and (sg.Menus:FindFirstChild("Playtime") or sg.Menus:FindFirstChild("Gifts"))))
+            if ptMenu then
+                for _, desc in ipairs(ptMenu:GetDescendants()) do
+                    if desc:IsA("GuiButton") and desc.Visible then
+                        local text = (desc:IsA("TextButton") and desc.Text:lower()) or ""
+                        if text == "" then
+                            for _, c in ipairs(desc:GetChildren()) do
+                                if c:IsA("TextLabel") and c.Visible then
+                                    text = c.Text:lower()
+                                    break
                                 end
                             end
-                            
-                            local isClaimed = text:find("reivindicado") or text:find("claimed") or text:find("resgatado")
-                            local isClaimable = (text:find("reivindica") or text:find("claim") or text:find("resgatar") or text:find("coletar") or text:find("pegar")) and not isClaimed
-                            
-                            if isClaimable and firesignal then
-                                firesignal(desc.Activated)
-                                firesignal(desc.MouseButton1Click)
-                            end
+                        end
+                        local isClaimed = text:find("reivindicado") or text:find("claimed") or text:find("resgatado")
+                        local isClaimable = (text:find("reivindica") or text:find("claim") or text:find("resgatar") or text:find("coletar") or text:find("pegar")) and not isClaimed
+                        if isClaimable and firesignal then
+                            firesignal(desc.Activated)
+                            firesignal(desc.MouseButton1Click)
                         end
                     end
                 end
             end
         end
         
-        -- 2. Dispara remotes de Playtime/Gift do jogo (1 a 12)
-        local candidateFolders = {}
-        if Remotes then table.insert(candidateFolders, Remotes) end
-        local sharedObj = ReplicatedStorage:FindFirstChild("Shared")
-        if sharedObj then
-            local sRems = sharedObj:FindFirstChild("Remotes") or sharedObj:FindFirstChild("Events")
-            if sRems and sRems ~= Remotes then table.insert(candidateFolders, sRems) end
-        end
-        
-        for _, f in ipairs(candidateFolders) do
-            for _, rem in ipairs(f:GetChildren()) do
-                local rName = rem.Name:lower()
-                if rName:find("gift") or rName:find("playtime") or rName:find("timereward") or (rName:find("claim") and (rName:find("reward") or rName:find("time") or rName:find("gift"))) then
-                    if rem:IsA("RemoteEvent") then
-                        for i = 1, 12 do
-                            pcall(function() rem:FireServer(i) end)
-                            pcall(function() rem:FireServer(tostring(i)) end)
-                        end
-                        pcall(function() rem:FireServer() end)
-                    elseif rem:IsA("RemoteFunction") then
-                        for i = 1, 12 do
-                            pcall(function() rem:InvokeServer(i) end)
-                            pcall(function() rem:InvokeServer(tostring(i)) end)
-                        end
-                        pcall(function() rem:InvokeServer() end)
-                    end
-                end
+        -- 2. Dispara ESTRITAMENTE o remote específico de Playtime Reward (1 a 12), evitando remotes de marcos/milestones
+        local remPlaytime = Remotes and (Remotes:FindFirstChild("ClaimPlaytimeReward") or Remotes:FindFirstChild("PlaytimeReward"))
+        if remPlaytime then
+            for i = 1, 12 do
+                pcall(function() remPlaytime:FireServer(i) end)
             end
         end
     end)
@@ -2605,6 +2581,17 @@ function handleHalloweenPartyMenu()
     
     local didAction = false
     
+    -- Auto Cancela a tela de Revive para respawnar imediatamente sem travar
+    local revive = screenGui:FindFirstChild("Revive")
+    if revive and revive.Visible then
+        local cancelBtn = revive:FindFirstChild("Cancel", true)
+        if cancelBtn and firesignal then
+            firesignal(cancelBtn.Activated)
+            firesignal(cancelBtn.MouseButton1Click)
+            didAction = true
+        end
+    end
+    
     -- 1. Janela "Select Party Size" (Menus.CreateParty)
     local menus = screenGui:FindFirstChild("Menus")
     local createParty = menus and menus:FindFirstChild("CreateParty")
@@ -2705,14 +2692,15 @@ function enterHalloweenArena()
     if isInsideHalloweenArena() then return true end
     
     local distToLobby = (hrp.Position - HalloweenData.LobbyPos).Magnitude
-    if distToLobby > 500 then
+    if distToLobby > 200 then
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         hrp.CFrame = CFrame.new(HalloweenData.LobbyPos)
-        task.wait(0.25)
+        task.wait(0.2)
         char = LocalPlayer.Character
         hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return false end
+        hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then return false end
     end
     
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
@@ -2722,19 +2710,38 @@ function enterHalloweenArena()
     if padPos then
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
-        hrp.CFrame = CFrame.new(padPos.X, padPos.Y + 1.5, padPos.Z)
-        task.wait(0.08)
+        hrp.CFrame = CFrame.new(padPos.X, padPos.Y + 1.2, padPos.Z)
         
-        if touchPart and touchPart:IsA("BasePart") and firetouchinterest then
-            firetouchinterest(hrp, touchPart, 0)
-            task.wait(0.04)
-            firetouchinterest(hrp, touchPart, 1)
-        end
+        pcall(function()
+            hum:Move(Vector3.new(0.05, 0, 0.05), false)
+        end)
+        task.wait(0.06)
+        
+        pcall(function()
+            if touchPart and touchPart:IsA("BasePart") and firetouchinterest then
+                firetouchinterest(hrp, touchPart, 0)
+                task.wait(0.02)
+                firetouchinterest(hrp, touchPart, 1)
+            end
+            local hw = getHalloweenWorld()
+            local teleporters = hw and hw:FindFirstChild("Scriptable") and hw.Scriptable:FindFirstChild("Teleporters")
+            if teleporters then
+                for _, p in ipairs(teleporters:GetDescendants()) do
+                    if p:IsA("BasePart") and (p.Position - padPos).Magnitude < 8 then
+                        if firetouchinterest then
+                            firetouchinterest(hrp, p, 0)
+                            task.wait(0.01)
+                            firetouchinterest(hrp, p, 1)
+                        end
+                    end
+                end
+            end
+        end)
     end
     
-    task.wait(0.12)
+    task.wait(0.1)
     handleHalloweenPartyMenu()
-    task.wait(0.15)
+    task.wait(0.12)
     
     return isInsideHalloweenArena()
 end
@@ -2750,21 +2757,31 @@ spawnThread(function()
                 local isDead = (not hum or hum.Health <= 0)
                 
                 if isDead then
+                    -- Cancela a tela de Revive imediatamente para forçar respawn instantâneo
+                    pcall(function()
+                        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+                        local revive = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Revive")
+                        if revive and revive.Visible then
+                            local cancelBtn = revive:FindFirstChild("Cancel", true)
+                            if cancelBtn and firesignal then
+                                firesignal(cancelBtn.Activated)
+                                firesignal(cancelBtn.MouseButton1Click)
+                            end
+                        end
+                    end)
+                    
                     if not isHalloweenDeadWaiting then
                         isHalloweenDeadWaiting = true
                         halloweenArenaEnteredCFrame = nil
                         if HalloweenStatsCard and HalloweenStatsCard.Update then
-                            HalloweenStatsCard.Update("Personagem morreu. Aguardando Respawn...", Color3.fromRGB(255, 185, 55))
+                            HalloweenStatsCard.Update("Aguardando Respawn... ⚡", Color3.fromRGB(255, 185, 55))
                         end
                     end
-                    task.wait(0.5)
+                    task.wait(0.3)
                     return
                 end
                 
-                if isHalloweenDeadWaiting then
-                    task.wait(0.8)
-                    isHalloweenDeadWaiting = false
-                end
+                isHalloweenDeadWaiting = false
                 
                 if isInsideHalloweenArena() then
                     local waveNum = getHalloweenWaveNumber()
@@ -2796,7 +2813,7 @@ spawnThread(function()
                 else
                     halloweenArenaEnteredCFrame = nil
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
-                        HalloweenStatsCard.Update("Indo ao Pad de Party (Criando 1P)...", Color3.fromRGB(56, 122, 255))
+                        HalloweenStatsCard.Update("Indo ao Pad de Party (Lobby) 🎃", Color3.fromRGB(56, 122, 255))
                     end
                     
                     enterHalloweenArena()
@@ -2809,7 +2826,6 @@ spawnThread(function()
         task.wait(0.1)
     end
 end)
-
 -- ══════════════════════════════════════════════════════════════
 -- CONEXÕES & EVENTOS DO AUTO BOSS (SÓ ENTRA E PAUSA QUANDO O BOSS APARECER)
 -- ══════════════════════════════════════════════════════════════
@@ -4326,6 +4342,9 @@ HalloweenToggle = createToggle(HalloweenTab, "Ativar Auto Farm Arena de Hallowee
         Config.AutoEndless = false
         if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(false, true) end
+        if HalloweenStatsCard and HalloweenStatsCard.Update then
+            HalloweenStatsCard.Update("Iniciando Auto Farm... 🎃", Themes.HalloweenOrange)
+        end
     else
         isHalloweenDeadWaiting = false
         halloweenArenaEnteredCFrame = nil
