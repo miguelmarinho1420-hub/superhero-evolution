@@ -9,17 +9,19 @@
        • 🔄 Auto Rebirth (100% em Segundo Plano - Automático)
        • 🏆 Auto Win (Deslize Contínuo, Pad Alvo e Pausa Configurável)
        • 🌀 Auto Endless (Seleção de Mundos, Padrão Mundo 10, Fica Parado até Morrer)
+       • 🎃 Auto Halloween Arena (Auto Farm na Arena de Halloween, Cria Party de 1 Player, Auto Iniciar e Farm Contínuo)
+       • ⚔️ Boss & Títulos (Auto Entrar no Boss e Painel Rápido de Títulos)
        • ⚙️ Config (Salvar Estado, Anti-AFK, Auto Recompensas, Auto Fechar Pop-ups Robux)
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791220445
+local SCRIPT_VERSION_TIMESTAMP = 1791653670
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
     pcall(function()
         if not getgenv().MCP_Loaded then
-            local bridgeUrl = getgenv().BridgeURL or "localhost:16384"
+            local bridgeUrl = getgenv().BridgeURL or "127.0.0.1:16384"
             pcall(function() loadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))() end)
         end
     end)
@@ -117,6 +119,11 @@ local RemoteBossEventReward = Remotes and Remotes:FindFirstChild("BossEventRewar
 local RemoteBossEventRequestState = Remotes and Remotes:FindFirstChild("BossEventRequestState")
 local RemoteOpenEndlessJoin = Remotes and Remotes:FindFirstChild("OpenEndlessJoin")
 
+-- Remotes Oficiais de Halloween & Party
+local RemoteHalloweenJoinRequest = Remotes and (Remotes:FindFirstChild("HalloweenJoinRequest") or Remotes:FindFirstChild("HalloweenArenaRequest") or Remotes:FindFirstChild("HalloweenStartRequest"))
+local RemotePartyCreate = Remotes and (Remotes:FindFirstChild("PartyCreate") or Remotes:FindFirstChild("CreateParty") or Remotes:FindFirstChild("PartyRequest"))
+local RemotePartyStart = Remotes and (Remotes:FindFirstChild("PartyStart") or Remotes:FindFirstChild("StartParty") or Remotes:FindFirstChild("StartMatch"))
+
 -- ══════════════════════════════════════════════════════════════
 -- CONFIGURAÇÕES & ESTADO
 -- ══════════════════════════════════════════════════════════════
@@ -146,7 +153,12 @@ local Config = {
     AutoEndless = false,
     EndlessWorld = "world10", -- Sempre padrão no melhor mundo (Mundo 10)
     
-    -- 5. Auto Boss (Prioridade Total: pausa todas as outras funções até o Boss morrer)
+    -- 5. Auto Halloween Arena (Área de Halloween e Auto Farm)
+    AutoHalloweenArena = false,
+    HalloweenPartySolo = true, -- Sempre criar party de 1 jogador
+    HalloweenStayCenter = true, -- Ficar no centro da arena batendo continuamente
+    
+    -- 6. Auto Boss (Prioridade Total: pausa todas as outras funções até o Boss morrer)
     AutoEnterBoss = false,
     
     -- 6. Títulos Rápidos (HUD no Canto Inferior Direito)
@@ -187,6 +199,9 @@ local function saveConfig()
             SpawnReturnMethod = Config.SpawnReturnMethod,
             AutoEndless = Config.AutoEndless,
             EndlessWorld = Config.EndlessWorld,
+            AutoHalloweenArena = Config.AutoHalloweenArena,
+            HalloweenPartySolo = Config.HalloweenPartySolo,
+            HalloweenStayCenter = Config.HalloweenStayCenter,
             AutoEnterBoss = Config.AutoEnterBoss,
             ShowCornerTitles = Config.ShowCornerTitles,
             ActiveTitleCategory = Config.ActiveTitleCategory,
@@ -225,7 +240,10 @@ local function loadConfig()
                     Config[k] = v
                 end
             end
-            if Config.AutoEndless == true then
+            if Config.AutoHalloweenArena == true then
+                Config.AutoWin = false
+                Config.AutoEndless = false
+            elseif Config.AutoEndless == true then
                 Config.AutoWin = false
             end
             if not Config.SelectedLuckTitle or Config.SelectedLuckTitle == "best" then Config.SelectedLuckTitle = "beast_god" end
@@ -252,6 +270,7 @@ local WorldsData = {
     {Id = "world8", Name = "Mundo 8", WorldNum = 8, MapName = "Map8", Min = 106, Max = 120},
     {Id = "world9", Name = "Mundo 9", WorldNum = 9, MapName = "Map9", Min = 121, Max = 135},
     {Id = "world10", Name = "Mundo 10", WorldNum = 10, MapName = "Map10", Min = 136, Max = 150},
+    {Id = "halloween", Name = "🎃 Halloween World", WorldNum = 11, MapName = "HalloweenWorld", Min = 1, Max = 150},
     {Id = "all", Name = "Todos os Mundos", WorldNum = nil, MapName = nil, Min = 1, Max = 150}
 }
 
@@ -526,10 +545,12 @@ local function pauseAllFunctionsForBoss(source)
         AutoRebirth = Config.AutoRebirth,
         AutoWin = Config.AutoWin,
         AutoEndless = Config.AutoEndless,
+        AutoHalloweenArena = Config.AutoHalloweenArena,
     }
     
     print("══════════════════════════════════════════════════════")
     print(string.format("[AUTO BOSS] Boss Apareceu (%s)! PAUSANDO TODAS AS OUTRAS FUNÇÕES:", tostring(source or "Arena")))
+    if BossPausedMemory.AutoHalloweenArena then print("  -> Auto Halloween Arena PAUSADO") end
     if BossPausedMemory.AutoEndless then print("  -> Auto Endless PAUSADO") end
     if BossPausedMemory.AutoWin then print("  -> Auto Win PAUSADO") end
     if BossPausedMemory.FastClick then print("  -> Auto Click PAUSADO") end
@@ -580,6 +601,11 @@ local function resumeFunctionsAfterBoss(reason)
     
     if BossPausedMemory then
         print("[AUTO BOSS] DESPAUSANDO as funções anteriores:")
+        if BossPausedMemory.AutoHalloweenArena then
+            Config.AutoHalloweenArena = true
+            if HalloweenToggle and HalloweenToggle.Set then HalloweenToggle.Set(true, true) end
+            print("  -> Auto Halloween Arena DESPAUSADO")
+        end
         if BossPausedMemory.AutoEndless then
             Config.AutoEndless = true
             if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(true, true) end
@@ -1056,6 +1082,15 @@ local function getCurrentMap()
     
     local x = hrp.Position.X
     local mapName = "Map"
+    local hw = workspace:FindFirstChild("HalloweenWorld")
+    if hw then
+        local hwPivot = (hw:IsA("Model") and hw:GetPivot().Position) or (hw:FindFirstChild("Floor") and hw.Floor:IsA("Model") and hw.Floor:GetPivot().Position) or (hw:FindFirstChild("Floor") and hw.Floor:IsA("BasePart") and hw.Floor.Position)
+        if hwPivot and (hrp.Position - hwPivot).Magnitude < 800 then
+            cachedCurrentMap = hw
+            return cachedCurrentMap
+        end
+    end
+    
     if x >= 6350 then mapName = "Map10"
     elseif x >= 5600 then mapName = "Map9"
     elseif x >= 4850 then mapName = "Map8"
@@ -2385,6 +2420,453 @@ spawnThread(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
+-- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM NA ARENA DE HALLOWEEN)
+-- ══════════════════════════════════════════════════════════════
+local isHalloweenDeadWaiting = false
+local halloweenArenaEnteredCFrame = nil
+local lastHalloweenJoinAttempt = 0
+local HalloweenStatsCard = nil
+local HalloweenToggle = nil
+
+local function getHalloweenWorld()
+    return workspace:FindFirstChild("HalloweenWorld")
+end
+
+local function getHalloweenLobbyCFrame()
+    local hw = getHalloweenWorld()
+    if not hw then return nil end
+    
+    local floor = hw:FindFirstChild("Floor")
+    if floor then
+        if floor:IsA("BasePart") then
+            return floor.CFrame + Vector3.new(0, 5, 0)
+        elseif floor:IsA("Model") then
+            return floor:GetPivot() + Vector3.new(0, 5, 0)
+        end
+    end
+    
+    local shop = hw:FindFirstChild("ShopNPC")
+    if shop then
+        local cf = shop:IsA("Model") and shop:GetPivot() or (shop:IsA("BasePart") and shop.CFrame)
+        if cf then return cf + Vector3.new(0, 3, 6) end
+    end
+    
+    local portals = hw:FindFirstChild("Portals") or hw:FindFirstChild("Portal")
+    if portals then
+        local cf = portals:IsA("Model") and portals:GetPivot() or (portals:IsA("BasePart") and portals.CFrame)
+        if cf then return cf + Vector3.new(0, 3, 5) end
+    end
+    
+    if hw:IsA("Model") then
+        return hw:GetPivot() + Vector3.new(0, 5, 0)
+    end
+    
+    return nil
+end
+
+local function getHalloweenArena()
+    local hw = getHalloweenWorld()
+    return hw and hw:FindFirstChild("HalloweenArena")
+end
+
+local function getHalloweenArenaCenter()
+    local arena = getHalloweenArena()
+    if not arena then return nil end
+    
+    for _, name in ipairs({"Center", "Platform", "Floor", "Base", "Pad", "Arena"}) do
+        local part = arena:FindFirstChild(name, true)
+        if part and part:IsA("BasePart") then
+            return part.Position
+        end
+    end
+    
+    if arena:IsA("Model") then
+        return arena:GetPivot().Position
+    end
+    
+    for _, child in ipairs(arena:GetChildren()) do
+        if child:IsA("BasePart") then
+            return child.Position
+        elseif child:IsA("Model") then
+            return child:GetPivot().Position
+        end
+    end
+    
+    return nil
+end
+
+local function getHalloweenArenaPortal()
+    local hw = getHalloweenWorld()
+    if not hw then return nil, nil end
+    
+    local arena = hw:FindFirstChild("HalloweenArena")
+    if arena then
+        local p = arena:FindFirstChild("Portal") or arena:FindFirstChild("Door") or arena:FindFirstChild("Pad") or arena:FindFirstChild("Enter") or arena:FindFirstChild("Hitbox")
+        if p then
+            local part = p:FindFirstChild("Hitbox") or (p:IsA("BasePart") and p) or p:FindFirstChildWhichIsA("BasePart", true)
+            local cf = (part and part.CFrame) or (p:IsA("Model") and p:GetPivot())
+            if cf then return part or p, cf end
+        end
+    end
+    
+    local hwPortal = hw:FindFirstChild("Portal")
+    if hwPortal then
+        local part = hwPortal:FindFirstChild("Hitbox") or (hwPortal:IsA("BasePart") and hwPortal) or hwPortal:FindFirstChildWhichIsA("BasePart", true)
+        local cf = (part and part.CFrame) or (hwPortal:IsA("Model") and hwPortal:GetPivot())
+        if cf then return part or hwPortal, cf end
+    end
+    
+    local center = getHalloweenArenaCenter()
+    if center then
+        return nil, CFrame.new(center.X, center.Y + 3, center.Z)
+    end
+    
+    return nil, nil
+end
+
+local function getHalloweenWaveNumber()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pgui then return nil end
+    
+    local sg = pgui:FindFirstChild("ScreenGui")
+    if sg then
+        local top = sg:FindFirstChild("Top")
+        if top then
+            for _, d in ipairs(top:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible and #d.Text > 0 then
+                    local num = d.Text:match("[Oo]nda%s*(%d+)") or d.Text:match("[Ww]ave%s*(%d+)")
+                    if num then return tonumber(num) end
+                end
+            end
+        end
+        for _, d in ipairs(sg:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Visible and #d.Text > 0 then
+                local num = d.Text:match("[Oo]nda%s*(%d+)") or d.Text:match("[Ww]ave%s*(%d+)")
+                if num then return tonumber(num) end
+            end
+        end
+    end
+    return nil
+end
+
+local function isInsideHalloweenArena()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    -- 1. Verifica indicadores de Onda / Wave na interface
+    local wave = getHalloweenWaveNumber()
+    if wave and wave > 0 then return true end
+    
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local sg = pgui and pgui:FindFirstChild("ScreenGui")
+    if sg then
+        local top = sg:FindFirstChild("Top")
+        if top then
+            local hwMode = top:FindFirstChild("HalloweenMode") or top:FindFirstChild("HalloweenArena")
+            if hwMode and hwMode.Visible then return true end
+        end
+        for _, d in ipairs(sg:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Visible then
+                local txt = d.Text:lower()
+                if txt:find("milhos doce") or txt:find("capacete de abóbora") or txt:find("capacete de abobora") then
+                    return true
+                end
+            end
+        end
+    end
+    
+    -- 2. Distância espacial até a HalloweenArena
+    local arenaCenter = getHalloweenArenaCenter()
+    if arenaCenter then
+        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
+        if dist < 220 then return true end
+    end
+    
+    return false
+end
+
+local function handleHalloweenPartyMenu()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pgui then return false end
+    
+    local screenGui = pgui:FindFirstChild("ScreenGui")
+    local menus = screenGui and screenGui:FindFirstChild("Menus")
+    
+    local candidateMenus = {}
+    if menus then
+        for _, child in ipairs(menus:GetChildren()) do
+            local n = child.Name:lower()
+            if n:find("party") or n:find("halloween") or n:find("arena") or n:find("dungeon") or n:find("raid") or n:find("match") or n:find("lobby") then
+                table.insert(candidateMenus, child)
+            elseif child:IsA("GuiObject") and child.Visible then
+                table.insert(candidateMenus, child)
+            end
+        end
+    end
+    if screenGui then
+        for _, child in ipairs(screenGui:GetChildren()) do
+            if child ~= menus and child:IsA("GuiObject") and child.Visible then
+                local n = child.Name:lower()
+                if n:find("party") or n:find("halloween") or n:find("arena") or n:find("dungeon") or n:find("raid") or n:find("match") then
+                    table.insert(candidateMenus, child)
+                end
+            end
+        end
+    end
+    
+    for _, sg in ipairs(pgui:GetChildren()) do
+        if sg:IsA("ScreenGui") and sg.Enabled and not sg.Name:match("^SuperHeroEvolutionHub") and sg ~= screenGui then
+            for _, child in ipairs(sg:GetChildren()) do
+                if child:IsA("GuiObject") and child.Visible then
+                    local n = child.Name:lower()
+                    if n:find("party") or n:find("halloween") or n:find("arena") or n:find("match") then
+                        table.insert(candidateMenus, child)
+                    end
+                end
+            end
+        end
+    end
+
+    local clickedAction = false
+    
+    for _, menu in ipairs(candidateMenus) do
+        -- A) Clicar em "Criar Party" / "Create" se visível
+        for _, btn in ipairs(menu:GetDescendants()) do
+            if btn:IsA("GuiButton") and btn.Visible then
+                local bName = btn.Name:lower()
+                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
+                if bName:find("create") or bName:find("criar") or bName:find("host") or bText:find("create") or bText:find("criar") or bText:find("host") then
+                    if firesignal then
+                        firesignal(btn.Activated)
+                        firesignal(btn.MouseButton1Click)
+                    end
+                    clickedAction = true
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+        
+        -- B) Garantir contagem de 1 Player (Solo)
+        for _, tb in ipairs(menu:GetDescendants()) do
+            if tb:IsA("TextBox") and tb.Visible then
+                local tName = tb.Name:lower()
+                if tName:find("player") or tName:find("max") or tName:find("count") or tName:find("limit") or tb.Text:match("^%d+$") then
+                    if tb.Text ~= "1" then
+                        tb.Text = "1"
+                        pcall(function() tb:ReleaseFocus(true) end)
+                        clickedAction = true
+                    end
+                end
+            end
+        end
+        
+        for _, btn in ipairs(menu:GetDescendants()) do
+            if btn:IsA("GuiButton") and btn.Visible then
+                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
+                local bName = btn.Name:lower()
+                if bText == "1" or bText == "solo" or bText == "1 player" or bName == "1" or bName == "solo" or bName == "single" then
+                    if firesignal then
+                        firesignal(btn.Activated)
+                        firesignal(btn.MouseButton1Click)
+                    end
+                    clickedAction = true
+                    break
+                end
+            end
+        end
+        
+        for _, btn in ipairs(menu:GetDescendants()) do
+            if btn:IsA("GuiButton") and btn.Visible then
+                local bText = (btn:IsA("TextButton") and btn.Text) or ""
+                local bName = btn.Name:lower()
+                if bText == "-" or bText == "<" or bName:find("decrease") or bName:find("minus") or bName:find("prev") then
+                    for _ = 1, 4 do
+                        if firesignal then
+                            firesignal(btn.Activated)
+                            firesignal(btn.MouseButton1Click)
+                        end
+                    end
+                    clickedAction = true
+                    break
+                end
+            end
+        end
+        
+        -- C) Clicar em "Iniciar" / "Start" / "Play" / "Ready"
+        for _, btn in ipairs(menu:GetDescendants()) do
+            if btn:IsA("GuiButton") and btn.Visible then
+                local bName = btn.Name:lower()
+                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
+                if bName:find("start") or bName:find("iniciar") or bName:find("ready") or bName:find("pronto") or bName:find("play") or bName:find("enter") or bText:find("start") or bText:find("iniciar") or bText:find("ready") or bText:find("pronto") or bText:find("play") or bText:find("enter") then
+                    if firesignal then
+                        firesignal(btn.Activated)
+                        firesignal(btn.MouseButton1Click)
+                    end
+                    clickedAction = true
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Dispara Remotes conhecidos de Party / Halloween se existirem
+    pcall(function()
+        if RemotePartyCreate then
+            RemotePartyCreate:FireServer(1)
+            RemotePartyCreate:FireServer({MaxPlayers = 1})
+        end
+        if RemotePartyStart then
+            RemotePartyStart:FireServer()
+        end
+        if RemoteHalloweenJoinRequest then
+            RemoteHalloweenJoinRequest:FireServer(1)
+            RemoteHalloweenJoinRequest:FireServer("HalloweenArena")
+        end
+    end)
+    
+    return clickedAction
+end
+
+local function enterHalloweenArena()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return false end
+    if not Config.AutoHalloweenArena or IsInBossFight then return false end
+    if isInsideHalloweenArena() then return true end
+    
+    local hw = getHalloweenWorld()
+    if not hw then return false end
+    
+    local lobbyCF = getHalloweenLobbyCFrame()
+    if lobbyCF then
+        local distToHW = (hrp.Position - lobbyCF.Position).Magnitude
+        if distToHW > 1500 then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = lobbyCF
+            task.wait(0.3)
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return false end
+        end
+    end
+    
+    if not Config.AutoHalloweenArena or IsInBossFight then return false end
+    if isInsideHalloweenArena() then return true end
+    
+    local portalPart, portalCF = getHalloweenArenaPortal()
+    if portalCF then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = portalCF + Vector3.new(0, 1.5, 0)
+        task.wait(0.08)
+        
+        if portalPart and portalPart:IsA("BasePart") and firetouchinterest then
+            firetouchinterest(hrp, portalPart, 0)
+            task.wait(0.04)
+            firetouchinterest(hrp, portalPart, 1)
+        end
+        
+        local targetPromptParent = portalPart or (hw and hw:FindFirstChild("Portal")) or (hw and hw:FindFirstChild("HalloweenArena"))
+        if targetPromptParent and fireproximityprompt then
+            for _, p in ipairs(targetPromptParent:GetDescendants()) do
+                if p:IsA("ProximityPrompt") then
+                    pcall(fireproximityprompt, p)
+                end
+            end
+        end
+    end
+    
+    task.wait(0.15)
+    handleHalloweenPartyMenu()
+    task.wait(0.2)
+    return isInsideHalloweenArena()
+end
+
+-- Thread Principal do Auto Halloween Arena
+spawnThread(function()
+    while true do
+        if Config.AutoHalloweenArena and not IsInBossFight then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local isDead = (not hum or hum.Health <= 0)
+                
+                if isDead then
+                    if not isHalloweenDeadWaiting then
+                        isHalloweenDeadWaiting = true
+                        halloweenArenaEnteredCFrame = nil
+                        if HalloweenStatsCard and HalloweenStatsCard.Update then
+                            HalloweenStatsCard.Update("Personagem morreu. Aguardando Respawn...", Color3.fromRGB(255, 185, 55))
+                        end
+                    end
+                    task.wait(0.5)
+                    return
+                end
+                
+                if isHalloweenDeadWaiting then
+                    task.wait(1.0)
+                    isHalloweenDeadWaiting = false
+                end
+                
+                if isInsideHalloweenArena() then
+                    local waveNum = getHalloweenWaveNumber()
+                    local waveTxt = waveNum and ("Onda " .. tostring(waveNum)) or "Em Combate"
+                    if HalloweenStatsCard and HalloweenStatsCard.Update then
+                        HalloweenStatsCard.Update(string.format("Farmando Arena (%s - 1P)", waveTxt), Themes.HalloweenOrange)
+                    end
+                    
+                    if not halloweenArenaEnteredCFrame then
+                        local centerPos = getHalloweenArenaCenter()
+                        if centerPos then
+                            halloweenArenaEnteredCFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
+                        else
+                            halloweenArenaEnteredCFrame = hrp.CFrame
+                        end
+                        hrp.CFrame = halloweenArenaEnteredCFrame
+                    end
+                    
+                    if Config.HalloweenStayCenter and halloweenArenaEnteredCFrame then
+                        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(halloweenArenaEnteredCFrame.Position.X, 0, halloweenArenaEnteredCFrame.Position.Z)).Magnitude
+                        if dist > 3 then
+                            hrp.CFrame = halloweenArenaEnteredCFrame
+                        end
+                        hum:Move(Vector3.zero, false)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end
+                    
+                    -- Fica batendo continuamente em segundo plano
+                    if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
+                    if RemotePlayerClick then RemotePlayerClick:FireServer() end
+                    
+                    handleHalloweenPartyMenu()
+                else
+                    halloweenArenaEnteredCFrame = nil
+                    if HalloweenStatsCard and HalloweenStatsCard.Update then
+                        HalloweenStatsCard.Update("Entrando na Arena (Criando Party 1P)...", Color3.fromRGB(56, 122, 255))
+                    end
+                    
+                    if os.clock() - lastHalloweenJoinAttempt > 2.0 then
+                        lastHalloweenJoinAttempt = os.clock()
+                        enterHalloweenArena()
+                    end
+                end
+            end)
+        else
+            isHalloweenDeadWaiting = false
+            halloweenArenaEnteredCFrame = nil
+        end
+        task.wait(0.12)
+    end
+end)
+
+-- ══════════════════════════════════════════════════════════════
 -- CONEXÕES & EVENTOS DO AUTO BOSS (SÓ ENTRA E PAUSA QUANDO O BOSS APARECER)
 -- ══════════════════════════════════════════════════════════════
 if RemoteBossEventPrompt then
@@ -2563,7 +3045,9 @@ local Themes = {
     Success = Color3.fromRGB(46, 204, 113),
     ToggleInactive = Color3.fromRGB(36, 42, 60),
     Warning = Color3.fromRGB(255, 185, 55),
-    Error = Color3.fromRGB(255, 75, 75)
+    Error = Color3.fromRGB(255, 75, 75),
+    HalloweenOrange = Color3.fromRGB(255, 130, 20),
+    HalloweenPurple = Color3.fromRGB(160, 50, 240)
 }
 
 -- MiniBar quando minimizado
@@ -3746,8 +4230,9 @@ local ClickTab = createTab("Auto Click", "⚡", 1)
 local RebirthTab = createTab("Auto Rebirth", "🔄", 2)
 local WinTab = createTab("Auto Win", "🏆", 3)
 local EndlessTab = createTab("Auto Endless", "🌀", 4)
-local BossTitlesTab = createTab("Boss & Títulos", "⚔️", 5)
-local ConfigTab = createTab("Config", "⚙️", 6)
+local HalloweenTab = createTab("Halloween", "🎃", 5)
+local BossTitlesTab = createTab("Boss & Títulos", "⚔️", 6)
+local ConfigTab = createTab("Config", "⚙️", 7)
 
 -- ── ABA 1: AUTO CLICK ──────────────────────────────────────────
 createSectionHeader(ClickTab, "⚡ AUTO CLICK (SEGUNDO PLANO - ZERO CHAT INTERRUPT)")
@@ -3808,7 +4293,9 @@ WinToggle = createToggle(WinTab, "Ativar Auto Win (Deslizar até Estágio Alvo)"
     Config.AutoWin = val
     if val then
         Config.AutoEndless = false
+        Config.AutoHalloweenArena = false
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(false, true) end
+        if HalloweenToggle and HalloweenToggle.Set then HalloweenToggle.Set(false, true) end
     end
     saveConfig()
 end)
@@ -3857,7 +4344,9 @@ EndlessToggle = createToggle(EndlessTab, "Ativar Auto Endless (Ficar Parado até
     Config.AutoEndless = val
     if val then
         Config.AutoWin = false
+        Config.AutoHalloweenArena = false
         if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
+        if HalloweenToggle and HalloweenToggle.Set then HalloweenToggle.Set(false, true) end
     else
         isDeadWaiting = false
         endlessEnteredCFrame = nil
@@ -3881,7 +4370,92 @@ EndlessToggle = createToggle(EndlessTab, "Ativar Auto Endless (Ficar Parado até
     saveConfig()
 end)
 
--- ── ABA 5: BOSS & TÍTULOS ──────────────────────────────────────
+-- ── ABA 5: HALLOWEEN ──────────────────────────────────────────
+createSectionHeader(HalloweenTab, "🎃 EVENTO DE HALLOWEEN (AUTO FARM NA ARENA)")
+
+HalloweenStatsCard = createInfoCard(HalloweenTab, "📊 Status do Halloween", "Fora da Arena", Themes.AccentBlue)
+
+HalloweenToggle = createToggle(HalloweenTab, "Ativar Auto Farm Arena de Halloween", Config.AutoHalloweenArena, function(val)
+    Config.AutoHalloweenArena = val
+    if val then
+        Config.AutoWin = false
+        Config.AutoEndless = false
+        if WinToggle and WinToggle.Set then WinToggle.Set(false, true) end
+        if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(false, true) end
+    else
+        isHalloweenDeadWaiting = false
+        halloweenArenaEnteredCFrame = nil
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hum then
+                hum.WalkSpeed = 16
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        end)
+        if HalloweenStatsCard and HalloweenStatsCard.Update then
+            HalloweenStatsCard.Update("Desativado (Livre)", Themes.TextDim)
+        end
+    end
+    saveConfig()
+end)
+
+createToggle(HalloweenTab, "Sempre Criar Party de 1 Jogador (Solo)", Config.HalloweenPartySolo, function(val)
+    Config.HalloweenPartySolo = val
+    saveConfig()
+end)
+
+createToggle(HalloweenTab, "Travar no Centro da Arena Atacando", Config.HalloweenStayCenter, function(val)
+    Config.HalloweenStayCenter = val
+    saveConfig()
+end)
+
+createSectionHeader(HalloweenTab, "🚪 TELEPORTES RÁPIDOS HALLOWEEN")
+
+createButton(HalloweenTab, "🎃 Teleportar para Halloween World (Lobby)", false, function()
+    local cf = getHalloweenLobbyCFrame()
+    if cf and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = cf
+    end
+end)
+
+createButton(HalloweenTab, "⚔️ Teleportar para Portal da Arena", false, function()
+    local p, cf = getHalloweenArenaPortal()
+    if cf and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = cf + Vector3.new(0, 2, 0)
+    end
+end)
+
+createButton(HalloweenTab, "🛒 Teleportar para Halloween Shop", false, function()
+    local hw = getHalloweenWorld()
+    local shop = hw and hw:FindFirstChild("ShopNPC")
+    if shop and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = (shop:IsA("Model") and shop:GetPivot() or shop.CFrame) + Vector3.new(0, 2, 5)
+    end
+end)
+
+createButton(HalloweenTab, "🎁 Teleportar para Reward Track", false, function()
+    local hw = getHalloweenWorld()
+    local rt = hw and hw:FindFirstChild("RewardTrackNPC")
+    if rt and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = (rt:IsA("Model") and rt:GetPivot() or rt.CFrame) + Vector3.new(0, 2, 5)
+    end
+end)
+
+createButton(HalloweenTab, "🏆 Teleportar para Top Candy Leaderboard", false, function()
+    local hw = getHalloweenWorld()
+    local lb = hw and hw:FindFirstChild("CandyLeaderboard")
+    if lb and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = (lb:IsA("Model") and lb:GetPivot() or lb.CFrame) + Vector3.new(0, 2, 5)
+    end
+end)
+
+-- ── ABA 6: BOSS & TÍTULOS ──────────────────────────────────────
 createSectionHeader(BossTitlesTab, "⚔️ AUTO ENTRAR NO BOSS (PRIORIDADE TOTAL)")
 
 BossStatusCard = createInfoCard(BossTitlesTab, "📊 Status do Boss", "Pronto / Aguardando Boss", Themes.AccentBlue)
@@ -3927,7 +4501,7 @@ createButton(BossTitlesTab, "🪙 Equipar Eternity (Token +500%)", false, functi
     equipCategoryTitle("Tokens")
 end)
 
--- ── ABA 6: CONFIG ──────────────────────────────────────────────
+-- ── ABA 7: CONFIG ──────────────────────────────────────────────
 createSectionHeader(ConfigTab, "⚙️ UTILITÁRIOS & SEGUNDO PLANO")
 
 AntiAfkToggle = createToggle(ConfigTab, "Anti-AFK Silencioso", Config.AntiAfk, function(val)
@@ -3980,6 +4554,7 @@ createButton(ConfigTab, "🔄 Recarregar Configurações Salvas", false, functio
         if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
         if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
+        if HalloweenToggle and HalloweenToggle.Set then HalloweenToggle.Set(Config.AutoHalloweenArena == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
@@ -4020,6 +4595,7 @@ local function applyLoadedConfig()
         if RebirthToggle and RebirthToggle.Set then RebirthToggle.Set(Config.AutoRebirth == true, true) end
         if WinToggle and WinToggle.Set then WinToggle.Set(Config.AutoWin == true, true) end
         if EndlessToggle and EndlessToggle.Set then EndlessToggle.Set(Config.AutoEndless == true, true) end
+        if HalloweenToggle and HalloweenToggle.Set then HalloweenToggle.Set(Config.AutoHalloweenArena == true, true) end
         if AntiAfkToggle and AntiAfkToggle.Set then AntiAfkToggle.Set(Config.AntiAfk == true, true) end
         if AutoClosePopupsToggle and AutoClosePopupsToggle.Set then AutoClosePopupsToggle.Set(Config.AutoClosePopups == true, true) end
         if PlaytimeToggle and PlaytimeToggle.Set then PlaytimeToggle.Set(Config.AutoClaimPlaytime == true, true) end
@@ -4064,6 +4640,8 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
     
     IsInBossFight = false
     BossPausedMemory = nil
+    isHalloweenDeadWaiting = false
+    halloweenArenaEnteredCFrame = nil
     if CornerTitlesHUD and CornerTitlesHUD.Parent then pcall(function() CornerTitlesHUD:Destroy() end) end
     if ScreenGui and ScreenGui.Parent then pcall(function() ScreenGui:Destroy() end) end
     destroyExistingHubs()
@@ -4112,6 +4690,6 @@ end
 
 print("══════════════════════════════════════════════════════")
 print("[SUPERHERO EVOLUTION HUB] Carregado com Sucesso!")
-print("Recursos: Auto Click (0.1s a 10s), Auto Rebirth, Auto Win com Pad Alvo e Pausa, Auto Endless (Mundo 10 padrão, parado até morrer), Config (Salvar, Anti-AFK, Auto Recompensas, Auto Fechar Pop-ups Robux clicando fora).")
+print("Recursos: Auto Click, Auto Rebirth, Auto Win com Pad Alvo e Pausa, Auto Endless, 🎃 Auto Halloween Arena (Party Solo 1P e Farm), Boss & Títulos, Config.")
 print("Pressione 'K' para Minimizar / Abrir a interface.")
 print("══════════════════════════════════════════════════════")
