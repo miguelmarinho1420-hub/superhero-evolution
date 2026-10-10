@@ -1,6 +1,6 @@
 {
-  "timestamp": 1791658864,
-  "commit": "8d18fa7",
-  "message": "Teleport to user coords X=-1652 Y=4.73 Z=-7.40 after 1s death wait in loop",
-  "date": "2026-10-10 16:01:06"
+  "timestamp": 1791660884,
+  "commit": "ca477b5",
+  "message": "Fix Halloween pad teleport 1s delay and party auto start",
+  "date": "2026-10-10 16:34:46"
 }
