@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791653670
+local SCRIPT_VERSION_TIMESTAMP = 1791654574
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -1296,8 +1296,8 @@ local function getPauseStageOptionsForWorld(worldId)
 end
 
 -- Detecção de sacos de pancada de treino
-local cachedHitboxList = {}
-local lastHitboxMapCheck = 0
+cachedHitboxList = {}
+lastHitboxMapCheck = 0
 
 local function getTrainingHitboxList()
     local now = os.clock()
@@ -1408,8 +1408,8 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 1. MOTOR DO AUTO CLICK (100% EM SEGUNDO PLANO - ZERO CHAT INTERRUPT)
 -- ══════════════════════════════════════════════════════════════
-local currentTargetBag = nil
-local currentTargetEnemy = nil
+currentTargetBag = nil
+currentTargetEnemy = nil
 
 -- Thread 1: Rastreador de alvos desacoplado (roda a cada 0.6s)
 spawnThread(function()
@@ -1566,7 +1566,7 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 3. MOTOR DO AUTO WIN (DESLIZE, COMBATE E PARADA NO PAD ALVO)
 -- ══════════════════════════════════════════════════════════════
-local StabilizedPads = {}
+StabilizedPads = {}
 
 local function stabilizePadPart(part)
     if not part or not part:IsA("BasePart") or StabilizedPads[part] then return end
@@ -2189,8 +2189,8 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 4. MOTOR DO AUTO ENDLESS (CO-OP SEM FIM)
 -- ══════════════════════════════════════════════════════════════
-local isDeadWaiting = false
-local endlessEnteredCFrame = nil
+isDeadWaiting = false
+endlessEnteredCFrame = nil
 
 local function isInsideEndless()
     local char = LocalPlayer.Character
@@ -2422,9 +2422,9 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM NA ARENA DE HALLOWEEN)
 -- ══════════════════════════════════════════════════════════════
-local isHalloweenDeadWaiting = false
-local halloweenArenaEnteredCFrame = nil
-local lastHalloweenJoinAttempt = 0
+isHalloweenDeadWaiting = false
+halloweenArenaEnteredCFrame = nil
+lastHalloweenJoinAttempt = 0
 local HalloweenStatsCard = nil
 local HalloweenToggle = nil
 
@@ -3061,17 +3061,17 @@ MiniBar.Visible = false
 MiniBar.Active = true
 MiniBar.Parent = ScreenGui
 
-local MiniBarCorner = Instance.new("UICorner")
+MiniBarCorner = Instance.new("UICorner")
 MiniBarCorner.CornerRadius = UDim.new(0, 25)
 MiniBarCorner.Parent = MiniBar
 
-local MiniBarStroke = Instance.new("UIStroke")
+MiniBarStroke = Instance.new("UIStroke")
 MiniBarStroke.Thickness = 1.5
 MiniBarStroke.Color = Themes.AccentBlue
 MiniBarStroke.Transparency = 0.2
 MiniBarStroke.Parent = MiniBar
 
-local AvatarMini = Instance.new("ImageLabel")
+AvatarMini = Instance.new("ImageLabel")
 AvatarMini.Name = "Avatar"
 AvatarMini.Size = UDim2.new(0, 38, 0, 38)
 AvatarMini.Position = UDim2.new(0, 6, 0.5, -19)
@@ -3079,11 +3079,11 @@ AvatarMini.BackgroundColor3 = Themes.Card
 AvatarMini.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
 AvatarMini.Parent = MiniBar
 
-local AvatarMiniCorner = Instance.new("UICorner")
+AvatarMiniCorner = Instance.new("UICorner")
 AvatarMiniCorner.CornerRadius = UDim.new(1, 0)
 AvatarMiniCorner.Parent = AvatarMini
 
-local MiniPlayerName = Instance.new("TextLabel")
+MiniPlayerName = Instance.new("TextLabel")
 MiniPlayerName.Size = UDim2.new(0, 150, 0, 16)
 MiniPlayerName.Position = UDim2.new(0, 52, 0, 8)
 MiniPlayerName.BackgroundTransparency = 1
@@ -3105,7 +3105,7 @@ MiniStats.Font = Enum.Font.GothamMedium
 MiniStats.TextXAlignment = Enum.TextXAlignment.Left
 MiniStats.Parent = MiniBar
 
-local MiniExpandBtn = Instance.new("TextButton")
+MiniExpandBtn = Instance.new("TextButton")
 MiniExpandBtn.Size = UDim2.new(0, 32, 0, 32)
 MiniExpandBtn.Position = UDim2.new(1, -40, 0.5, -16)
 MiniExpandBtn.BackgroundColor3 = Themes.Card
@@ -3117,7 +3117,7 @@ MiniExpandBtn.AutoButtonColor = false
 MiniExpandBtn.Active = true
 MiniExpandBtn.Parent = MiniBar
 
-local MiniExpandCorner = Instance.new("UICorner")
+MiniExpandCorner = Instance.new("UICorner")
 MiniExpandCorner.CornerRadius = UDim.new(0, 16)
 MiniExpandCorner.Parent = MiniExpandBtn
 
@@ -3131,17 +3131,17 @@ MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
+MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 14)
 MainCorner.Parent = MainFrame
 
-local MainStroke = Instance.new("UIStroke")
+MainStroke = Instance.new("UIStroke")
 MainStroke.Thickness = 1.5
 MainStroke.Color = Themes.CardBorder
 MainStroke.Parent = MainFrame
 
 -- Topbar
-local Topbar = Instance.new("Frame")
+Topbar = Instance.new("Frame")
 Topbar.Name = "Topbar"
 Topbar.Size = UDim2.new(1, 0, 0, 54)
 Topbar.BackgroundColor3 = Themes.Header
@@ -3149,11 +3149,11 @@ Topbar.BorderSizePixel = 0
 Topbar.Active = true
 Topbar.Parent = MainFrame
 
-local TopbarCorner = Instance.new("UICorner")
+TopbarCorner = Instance.new("UICorner")
 TopbarCorner.CornerRadius = UDim.new(0, 14)
 TopbarCorner.Parent = Topbar
 
-local TopbarLine = Instance.new("Frame")
+TopbarLine = Instance.new("Frame")
 TopbarLine.Size = UDim2.new(1, 0, 0, 1)
 TopbarLine.Position = UDim2.new(0, 0, 1, -1)
 TopbarLine.BackgroundColor3 = Themes.CardBorder
@@ -3161,7 +3161,7 @@ TopbarLine.BorderSizePixel = 0
 TopbarLine.Parent = Topbar
 
 -- Avatar do Jogador com Borda Azul Circular
-local HeaderAvatar = Instance.new("ImageLabel")
+HeaderAvatar = Instance.new("ImageLabel")
 HeaderAvatar.Name = "HeaderAvatar"
 HeaderAvatar.Size = UDim2.new(0, 36, 0, 36)
 HeaderAvatar.Position = UDim2.new(0, 14, 0.5, -18)
@@ -3169,17 +3169,17 @@ HeaderAvatar.BackgroundColor3 = Themes.Card
 HeaderAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
 HeaderAvatar.Parent = Topbar
 
-local HeaderAvatarCorner = Instance.new("UICorner")
+HeaderAvatarCorner = Instance.new("UICorner")
 HeaderAvatarCorner.CornerRadius = UDim.new(1, 0)
 HeaderAvatarCorner.Parent = HeaderAvatar
 
-local HeaderAvatarStroke = Instance.new("UIStroke")
+HeaderAvatarStroke = Instance.new("UIStroke")
 HeaderAvatarStroke.Thickness = 1.5
 HeaderAvatarStroke.Color = Themes.AccentBlue
 HeaderAvatarStroke.Parent = HeaderAvatar
 
 -- Títulos Exatamente Conforme Imagem
-local TitleLabel = Instance.new("TextLabel")
+TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "Title"
 TitleLabel.Size = UDim2.new(0, 240, 0, 18)
 TitleLabel.Position = UDim2.new(0, 58, 0, 10)
@@ -3191,7 +3191,7 @@ TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Topbar
 
-local SubtitleLabel = Instance.new("TextLabel")
+SubtitleLabel = Instance.new("TextLabel")
 SubtitleLabel.Name = "Subtitle"
 SubtitleLabel.Size = UDim2.new(0, 240, 0, 16)
 SubtitleLabel.Position = UDim2.new(0, 58, 0, 28)
@@ -3215,17 +3215,17 @@ HeaderStats.TextSize = 10
 HeaderStats.Font = Enum.Font.GothamBold
 HeaderStats.Parent = Topbar
 
-local HeaderStatsCorner = Instance.new("UICorner")
+HeaderStatsCorner = Instance.new("UICorner")
 HeaderStatsCorner.CornerRadius = UDim.new(0, 13)
 HeaderStatsCorner.Parent = HeaderStats
 
-local HeaderStatsStroke = Instance.new("UIStroke")
+HeaderStatsStroke = Instance.new("UIStroke")
 HeaderStatsStroke.Thickness = 1
 HeaderStatsStroke.Color = Themes.CardBorder
 HeaderStatsStroke.Parent = HeaderStats
 
 -- Botões Minimizar e Fechar
-local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Name = "MinimizeBtn"
 MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
 MinimizeBtn.Position = UDim2.new(1, -72, 0.5, -15)
@@ -3238,11 +3238,11 @@ MinimizeBtn.AutoButtonColor = false
 MinimizeBtn.Active = true
 MinimizeBtn.Parent = Topbar
 
-local MinimizeCorner = Instance.new("UICorner")
+MinimizeCorner = Instance.new("UICorner")
 MinimizeCorner.CornerRadius = UDim.new(0, 8)
 MinimizeCorner.Parent = MinimizeBtn
 
-local CloseBtn = Instance.new("TextButton")
+CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
 CloseBtn.Size = UDim2.new(0, 30, 0, 30)
 CloseBtn.Position = UDim2.new(1, -36, 0.5, -15)
@@ -3255,7 +3255,7 @@ CloseBtn.AutoButtonColor = false
 CloseBtn.Active = true
 CloseBtn.Parent = Topbar
 
-local CloseCorner = Instance.new("UICorner")
+CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseBtn
 
@@ -3365,23 +3365,23 @@ CornerTitlesHUD.Active = true
 CornerTitlesHUD.Visible = (Config.ShowCornerTitles ~= false)
 CornerTitlesHUD.Parent = ScreenGui
 
-local HUDCorner = Instance.new("UICorner")
+HUDCorner = Instance.new("UICorner")
 HUDCorner.CornerRadius = UDim.new(0, 10)
 HUDCorner.Parent = CornerTitlesHUD
 
-local HUDStroke = Instance.new("UIStroke")
+HUDStroke = Instance.new("UIStroke")
 HUDStroke.Thickness = 1.5
 HUDStroke.Color = Color3.fromRGB(60, 75, 110)
 HUDStroke.Transparency = 0.1
 HUDStroke.Parent = CornerTitlesHUD
 
-local HUDHeader = Instance.new("Frame")
+HUDHeader = Instance.new("Frame")
 HUDHeader.Name = "HUDHeader"
 HUDHeader.Size = UDim2.new(1, 0, 0, 26)
 HUDHeader.BackgroundTransparency = 1
 HUDHeader.Parent = CornerTitlesHUD
 
-local HUDTitle = Instance.new("TextLabel")
+HUDTitle = Instance.new("TextLabel")
 HUDTitle.Name = "HUDTitle"
 HUDTitle.Size = UDim2.new(1, -30, 1, 0)
 HUDTitle.Position = UDim2.new(0, 10, 0, 0)
@@ -3393,7 +3393,7 @@ HUDTitle.Font = Enum.Font.GothamBold
 HUDTitle.TextXAlignment = Enum.TextXAlignment.Left
 HUDTitle.Parent = HUDHeader
 
-local HUDMinimizeBtn = Instance.new("TextButton")
+HUDMinimizeBtn = Instance.new("TextButton")
 HUDMinimizeBtn.Name = "Minimize"
 HUDMinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
 HUDMinimizeBtn.Position = UDim2.new(1, -24, 0, 3)
@@ -3406,18 +3406,18 @@ HUDMinimizeBtn.TextSize = 11
 HUDMinimizeBtn.Font = Enum.Font.GothamBold
 HUDMinimizeBtn.Parent = HUDHeader
 
-local HUDMinCorner = Instance.new("UICorner")
+HUDMinCorner = Instance.new("UICorner")
 HUDMinCorner.CornerRadius = UDim.new(0, 4)
 HUDMinCorner.Parent = HUDMinimizeBtn
 
-local HUDBody = Instance.new("Frame")
+HUDBody = Instance.new("Frame")
 HUDBody.Name = "HUDBody"
 HUDBody.Size = UDim2.new(1, -16, 0, 106)
 HUDBody.Position = UDim2.new(0, 8, 0, 28)
 HUDBody.BackgroundTransparency = 1
 HUDBody.Parent = CornerTitlesHUD
 
-local HUDList = Instance.new("UIListLayout")
+HUDList = Instance.new("UIListLayout")
 HUDList.SortOrder = Enum.SortOrder.LayoutOrder
 HUDList.Padding = UDim.new(0, 6)
 HUDList.Parent = HUDBody
@@ -3425,7 +3425,7 @@ HUDList.Parent = HUDBody
 makeDraggable(CornerTitlesHUD, CornerTitlesHUD)
 makeDraggable(CornerTitlesHUD, HUDHeader)
 
-local hudMinimized = false
+hudMinimized = false
 HUDMinimizeBtn.Activated:Connect(function()
     hudMinimized = not hudMinimized
     if hudMinimized then
@@ -3442,7 +3442,7 @@ HUDMinimizeBtn.MouseButton1Click:Connect(function()
     HUDMinimizeBtn.Activated:Fire()
 end)
 
-local QuickTitleButtons = {}
+QuickTitleButtons = {}
 
 local function createQuickTitleButton(parent, category, labelText, defaultAccent, order)
     local btn = Instance.new("TextButton")
@@ -3576,8 +3576,8 @@ end
 updateCornerTitlesVisual()
 
 -- FPS, Ping e Rebirths em Tempo Real
-local fpsCount = 0
-local lastTime = tick()
+fpsCount = 0
+lastTime = tick()
 
 table.insert(ActiveConnections, RunService.RenderStepped:Connect(function()
     fpsCount = fpsCount + 1
@@ -3600,7 +3600,7 @@ table.insert(ActiveConnections, RunService.RenderStepped:Connect(function()
 end))
 
 -- Sidebar & Estrutura das 5 Abas
-local Sidebar = Instance.new("Frame")
+Sidebar = Instance.new("Frame")
 Sidebar.Name = "Sidebar"
 Sidebar.Size = UDim2.new(0, 160, 1, -54)
 Sidebar.Position = UDim2.new(0, 0, 0, 54)
@@ -3609,22 +3609,22 @@ Sidebar.BorderSizePixel = 0
 Sidebar.Active = true
 Sidebar.Parent = MainFrame
 
-local SidebarCorner = Instance.new("UICorner")
+SidebarCorner = Instance.new("UICorner")
 SidebarCorner.CornerRadius = UDim.new(0, 14)
 SidebarCorner.Parent = Sidebar
 
-local SidebarLayout = Instance.new("UIListLayout")
+SidebarLayout = Instance.new("UIListLayout")
 SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
 SidebarLayout.Padding = UDim.new(0, 6)
 SidebarLayout.Parent = Sidebar
 
-local SidebarPadding = Instance.new("UIPadding")
+SidebarPadding = Instance.new("UIPadding")
 SidebarPadding.PaddingTop = UDim.new(0, 12)
 SidebarPadding.PaddingLeft = UDim.new(0, 8)
 SidebarPadding.PaddingRight = UDim.new(0, 8)
 SidebarPadding.Parent = Sidebar
 
-local PageContainer = Instance.new("Frame")
+PageContainer = Instance.new("Frame")
 PageContainer.Name = "PageContainer"
 PageContainer.Size = UDim2.new(1, -160, 1, -54)
 PageContainer.Position = UDim2.new(0, 160, 0, 54)
@@ -4226,13 +4226,13 @@ end
 -- ══════════════════════════════════════════════════════════════
 -- CRIAÇÃO DAS 5 ABAS SOLICITADAS
 -- ══════════════════════════════════════════════════════════════
-local ClickTab = createTab("Auto Click", "⚡", 1)
-local RebirthTab = createTab("Auto Rebirth", "🔄", 2)
-local WinTab = createTab("Auto Win", "🏆", 3)
-local EndlessTab = createTab("Auto Endless", "🌀", 4)
-local HalloweenTab = createTab("Halloween", "🎃", 5)
-local BossTitlesTab = createTab("Boss & Títulos", "⚔️", 6)
-local ConfigTab = createTab("Config", "⚙️", 7)
+ClickTab = createTab("Auto Click", "⚡", 1)
+RebirthTab = createTab("Auto Rebirth", "🔄", 2)
+WinTab = createTab("Auto Win", "🏆", 3)
+EndlessTab = createTab("Auto Endless", "🌀", 4)
+HalloweenTab = createTab("Halloween", "🎃", 5)
+BossTitlesTab = createTab("Boss & Títulos", "⚔️", 6)
+ConfigTab = createTab("Config", "⚙️", 7)
 
 -- ── ABA 1: AUTO CLICK ──────────────────────────────────────────
 createSectionHeader(ClickTab, "⚡ AUTO CLICK (SEGUNDO PLANO - ZERO CHAT INTERRUPT)")
@@ -4265,10 +4265,10 @@ createSectionHeader(WinTab, "🏆 PROGRESSÃO & ESTÁGIOS (AUTO WIN)")
 WinStatsCard = createInfoCard(WinTab, "📊 Vitórias Coletadas", "Vitórias: 0", Themes.AccentBlue)
 
 createLabel(WinTab, "1. Selecione o Mundo:")
-local stageProgDropdown = nil
-local pauseStageDropdown = nil
+stageProgDropdown = nil
+pauseStageDropdown = nil
 
-local worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.SelectedProgWorld, function(worldId)
+worldProgDropdown = createDropdown(WinTab, "", WorldsData, Config.SelectedProgWorld, function(worldId)
     Config.SelectedProgWorld = worldId
     if stageProgDropdown and stageProgDropdown.UpdateOptions then
         local opts = getStagesOptionsForWorld(worldId)
