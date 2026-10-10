@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791661149
+local SCRIPT_VERSION_TIMESTAMP = 1791661923
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2399,21 +2399,23 @@ end)
 -- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM CANDY NA ARENA DE HALLOWEEN)
 -- ══════════════════════════════════════════════════════════════
 isHalloweenDeadWaiting = false
+isEnteringHalloweenPad = false
 halloweenArenaEnteredCFrame = nil
 lastHalloweenJoinAttempt = 0
 HalloweenStatsCard = nil
 HalloweenToggle = nil
 
 HalloweenData = {
-    -- Posição exata indicada pelo usuário: X=-1652.00, Y=4.73, Z=-7.40
-    TargetPadPos = Vector3.new(-1652.00, 4.73, -7.40),
+    -- Posições exatas dos Pads de Teleporte (SpawnPart e TouchPart)
+    TargetPadPos = Vector3.new(-1650.88, 5.18, -5.42), -- Pad 2 (Centro exato do Pad indicado pelo usuário)
+    EntrancePos = Vector3.new(-1650.88, 5.5, 4.0),     -- Entrada do Pad 2
     Pads = {
-        Vector3.new(-1672.00, 4.73, -7.40), -- Pad 1
-        Vector3.new(-1652.00, 4.73, -7.40), -- Pad 2 (Principal indicado pelo usuário)
-        Vector3.new(-1632.00, 4.73, -7.40), -- Pad 3
-        Vector3.new(-1612.00, 4.73, -7.40), -- Pad 4
+        Vector3.new(-1670.88, 5.18, -5.42), -- Pad 1
+        Vector3.new(-1650.88, 5.18, -5.42), -- Pad 2 (Principal indicado pelo usuário)
+        Vector3.new(-1630.88, 5.18, -5.42), -- Pad 3
+        Vector3.new(-1610.88, 5.18, -5.42), -- Pad 4
     },
-    LobbyPos = Vector3.new(-1652.00, 4.73, -7.40),
+    LobbyPos = Vector3.new(-1650.88, 5.18, 4.0),
     ArenaCenter = Vector3.new(-1642.17, 21.74, 1241.91),
 }
 
@@ -2469,7 +2471,7 @@ function getHalloweenWaveNumber()
     return nil
 end
 
--- Detecção matemática exata: apenas verdadeiro se o personagem estiver fisicamente dentro do raio da arena de combate
+-- Detecção matemática exata: apenas verdadeiro se o personagem estiver fisicamente dentro da arena de combate (distância < 180 studs)
 function isInsideHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2528,10 +2530,10 @@ function findVacantHalloweenPad()
     end
     
     if not isTargetOccupied then
-        return targetPos
+        return targetPos, 2
     end
     
-    for _, pos in ipairs(HalloweenData.Pads) do
+    for idx, pos in ipairs(HalloweenData.Pads) do
         if pos ~= targetPos then
             local occupied = false
             for _, plr in ipairs(Players:GetPlayers()) do
@@ -2543,19 +2545,17 @@ function findVacantHalloweenPad()
                 end
             end
             if not occupied then
-                return pos
+                return pos, idx
             end
         end
     end
     
-    return targetPos
+    return targetPos, 2
 end
 
 function handleHalloweenPartyMenu()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pgui then return false end
-    
-    local screenGui = pgui:FindFirstChild("ScreenGui")
+    local screenGui = pgui and pgui:FindFirstChild("ScreenGui")
     if not screenGui then return false end
     
     local didAction = false
@@ -2659,6 +2659,7 @@ function handleHalloweenPartyMenu()
     return didAction
 end
 
+-- Função de entrada robusta no Pad: garante streaming, toque no TouchPart, clique na UI e início
 function enterHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2666,68 +2667,99 @@ function enterHalloweenArena()
     if not hrp or not hum or hum.Health <= 0 then return false end
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
     if isInsideHalloweenArena() then return true end
+    if isEnteringHalloweenPad then return false end
     
-    local targetPos = findVacantHalloweenPad()
+    isEnteringHalloweenPad = true
     
-    -- Se estiver fora do Halloween World (ex: no Spawn principal da cidade)
-    local distToPad = (hrp.Position - targetPos).Magnitude
-    if distToPad > 3000 then
-        pcall(function()
-            local req = Remotes and Remotes:FindFirstChild("RequestEventWorldTeleport")
-            if req then req:InvokeServer("halloween_2026") end
-        end)
-        task.wait(0.3)
-    end
-    
-    -- Carrega a área em torno do pad
     pcall(function()
-        workspace:RequestStreamAroundAsync(targetPos)
-    end)
-    
-    -- Teleporta o personagem diretamente para o local solicitado (X=-1652.00, Y=4.73, Z=-7.40)
-    hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
-    hrp.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
-    
-    -- Movimento físico para ativar o toque no chão do pad
-    pcall(function()
-        hum:Move(Vector3.new(0.05, 0, 0.05), false)
-    end)
-    task.wait(0.1)
-    
-    -- Dispara firetouchinterest em partes do pad se existirem perto
-    pcall(function()
+        local padPos, padIndex = findVacantHalloweenPad()
+        local entrance = HalloweenData.EntrancePos
+        
+        -- 1. Se estiver distante do mundo de Halloween, teleporta para a entrada primeiro
+        local dist = (hrp.Position - padPos).Magnitude
+        if dist > 80 then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = CFrame.new(entrance)
+            
+            pcall(function()
+                workspace:RequestStreamAroundAsync(padPos)
+            end)
+            task.wait(0.4)
+        end
+        
+        -- 2. Entra no Pad (centro do SpawnPart)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(padPos.X, padPos.Y + 0.3, padPos.Z)
+        task.wait(0.08)
+        
+        -- 3. Dispara o TouchPart correspondente ao Pad
         local hw = getHalloweenWorld()
         local teleporters = hw and hw:FindFirstChild("Scriptable") and hw.Scriptable:FindFirstChild("Teleporters")
-        if teleporters then
-            for _, p in ipairs(teleporters:GetDescendants()) do
-                if p:IsA("BasePart") and (p.Position - targetPos).Magnitude < 15 then
-                    if firetouchinterest then
-                        firetouchinterest(hrp, p, 0)
-                        task.wait(0.01)
-                        firetouchinterest(hrp, p, 1)
-                    end
-                end
+        local padFolder = teleporters and teleporters:FindFirstChild(tostring(padIndex or 2))
+        local tp = padFolder and padFolder:FindFirstChild("TouchPart", true)
+        if hrp and tp and firetouchinterest then
+            firetouchinterest(hrp, tp, 0)
+            task.wait(0.04)
+            firetouchinterest(hrp, tp, 1)
+        end
+        
+        pcall(function()
+            hum:MoveTo(padPos)
+        end)
+        
+        -- 4. Aguarda a interface CreateParty abrir (até 2s)
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local sg = pgui and pgui:FindFirstChild("ScreenGui")
+        local cp = sg and sg:FindFirstChild("Menus") and sg.Menus:FindFirstChild("CreateParty")
+        local t0 = os.clock()
+        while os.clock() - t0 < 2.0 do
+            if (cp and cp.Visible) or isInsideHalloweenArena() then break end
+            task.wait(0.05)
+        end
+        
+        -- 5. Seleciona 1 Jogador e clica em Create
+        if cp and cp.Visible then
+            local main = cp:FindFirstChild("Main", true)
+            if main then
+                local s1 = main:FindFirstChild("Size1", true)
+                local create = main:FindFirstChild("Create", true)
+                if s1 then clickHalloweenButton(s1) end
+                task.wait(0.1)
+                if create then clickHalloweenButton(create) end
             end
         end
+        
+        local pcRemote = Remotes and Remotes:FindFirstChild("PartyCreate")
+        if pcRemote then pcRemote:FireServer(1) end
+        
+        -- 6. Aguarda a barra PartyControls abrir (até 2s)
+        local pc = sg and sg:FindFirstChild("Bottom") and sg.Bottom:FindFirstChild("PartyControls")
+        local t1 = os.clock()
+        while os.clock() - t1 < 2.0 do
+            if (pc and pc.Visible) or isInsideHalloweenArena() then break end
+            task.wait(0.05)
+        end
+        
+        -- 7. Clica no botão Começar (Start)
+        if pc and pc.Visible then
+            local startBtn = pc:FindFirstChild("Start")
+            if startBtn then clickHalloweenButton(startBtn) end
+        end
+        
+        local psRemote = Remotes and Remotes:FindFirstChild("PartyStart")
+        if psRemote then psRemote:FireServer() end
+        
+        -- 8. Aguarda transição para dentro da arena (até 2s)
+        local t2 = os.clock()
+        while os.clock() - t2 < 2.0 do
+            if isInsideHalloweenArena() then break end
+            task.wait(0.1)
+        end
     end)
     
-    task.wait(0.2)
-    -- Seleciona 1 player, clica Create, clica Começar
-    handleHalloweenPartyMenu()
-    
-    -- Dispara os Remotes diretamente
-    pcall(function()
-        if RemotePartyCreate then
-            RemotePartyCreate:FireServer(1)
-        end
-        task.wait(0.2)
-        if RemotePartyStart then
-            RemotePartyStart:FireServer()
-        end
-    end)
-    
-    task.wait(0.3)
+    isEnteringHalloweenPad = false
     return isInsideHalloweenArena()
 end
 
@@ -2758,6 +2790,7 @@ spawnThread(function()
                     
                     if not isHalloweenDeadWaiting then
                         isHalloweenDeadWaiting = true
+                        isEnteringHalloweenPad = false
                         halloweenArenaEnteredCFrame = nil
                         if HalloweenStatsCard and HalloweenStatsCard.Update then
                             HalloweenStatsCard.Update("Morreu na Arena. Aguardando Respawn... ⚡", Color3.fromRGB(255, 185, 55))
@@ -2778,6 +2811,7 @@ spawnThread(function()
                 end
                 
                 if isInsideHalloweenArena() then
+                    isEnteringHalloweenPad = false
                     -- DENTRO DA ARENA: AUTO FARM CANDY
                     local waveNum = getHalloweenWaveNumber()
                     local waveTxt = waveNum and ("Onda " .. tostring(waveNum)) or "Farmando Candy 🎃"
@@ -2807,17 +2841,20 @@ spawnThread(function()
                     -- Se a barra "Começar" ainda estiver visível, clica nela
                     handleHalloweenPartyMenu()
                 else
-                    -- FORA DA ARENA: TELEPORTA PARA X=-1652, Y=4.73, Z=-7.40, CRIA PARTY 1P E INICIA!
+                    -- FORA DA ARENA: ENTRA NO PAD DE PARTY E INICIA
                     halloweenArenaEnteredCFrame = nil
-                    if HalloweenStatsCard and HalloweenStatsCard.Update then
-                        HalloweenStatsCard.Update("Indo ao Pad (-1652, 4.73, -7.40)... 🎃", Color3.fromRGB(56, 122, 255))
+                    if not isEnteringHalloweenPad then
+                        if HalloweenStatsCard and HalloweenStatsCard.Update then
+                            HalloweenStatsCard.Update("Entrando no Pad de Halloween... 🎃", Color3.fromRGB(56, 122, 255))
+                        end
+                        
+                        enterHalloweenArena()
                     end
-                    
-                    enterHalloweenArena()
                 end
             end)
         else
             isHalloweenDeadWaiting = false
+            isEnteringHalloweenPad = false
             halloweenArenaEnteredCFrame = nil
         end
         task.wait(0.1)
@@ -4385,9 +4422,22 @@ createButton(HalloweenTab, "🎃 Teleportar para Halloween World (Lobby)", false
 end)
 
 createButton(HalloweenTab, "⚔️ Teleportar para Pads de Party (Fila Arena)", false, function()
-    local p, cf = getHalloweenArenaPortal()
-    if cf and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = cf + Vector3.new(0, 2, 0)
+    local padCenter = HalloweenData.TargetPadPos
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(padCenter.X, padCenter.Y + 0.3, padCenter.Z)
+        task.wait(0.08)
+        local hw = getHalloweenWorld()
+        local teleporters = hw and hw:FindFirstChild("Scriptable") and hw.Scriptable:FindFirstChild("Teleporters")
+        local pad2 = teleporters and teleporters:FindFirstChild("2")
+        local tp = pad2 and pad2:FindFirstChild("TouchPart", true)
+        if tp and firetouchinterest then
+            firetouchinterest(hrp, tp, 0)
+            task.wait(0.04)
+            firetouchinterest(hrp, tp, 1)
+        end
     end
 end)
 
