@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791654574
+local SCRIPT_VERSION_TIMESTAMP = 1791656619
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2420,114 +2420,66 @@ spawnThread(function()
 end)
 
 -- ══════════════════════════════════════════════════════════════
--- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM NA ARENA DE HALLOWEEN)
+-- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM CANDY NA ARENA DE HALLOWEEN)
 -- ══════════════════════════════════════════════════════════════
 isHalloweenDeadWaiting = false
 halloweenArenaEnteredCFrame = nil
 lastHalloweenJoinAttempt = 0
-local HalloweenStatsCard = nil
-local HalloweenToggle = nil
+HalloweenStatsCard = nil
+HalloweenToggle = nil
 
-local function getHalloweenWorld()
+HalloweenData = {
+    Pads = {
+        Vector3.new(-1670.95, 5.24, -0.40), -- Pad 1
+        Vector3.new(-1650.95, 5.24, -0.40), -- Pad 2
+        Vector3.new(-1630.95, 5.24, -0.40), -- Pad 3
+        Vector3.new(-1610.95, 5.24, -0.40), -- Pad 4
+    },
+    LobbyPos = Vector3.new(-1641.0, 5.5, -15.0),
+    ArenaCenter = Vector3.new(-1642.17, 21.74, 1241.91),
+}
+
+function getHalloweenWorld()
     return workspace:FindFirstChild("HalloweenWorld")
 end
 
-local function getHalloweenLobbyCFrame()
+function getHalloweenLobbyCFrame()
     local hw = getHalloweenWorld()
-    if not hw then return nil end
-    
-    local floor = hw:FindFirstChild("Floor")
-    if floor then
-        if floor:IsA("BasePart") then
-            return floor.CFrame + Vector3.new(0, 5, 0)
-        elseif floor:IsA("Model") then
-            return floor:GetPivot() + Vector3.new(0, 5, 0)
+    if hw then
+        local lb = hw:FindFirstChild("CandyLeaderboard")
+        if lb then
+            local cf = (lb:IsA("Model") and lb:GetPivot()) or (lb:IsA("BasePart") and lb.CFrame)
+            if cf then
+                return cf + Vector3.new(0, 2, 12)
+            end
         end
     end
-    
-    local shop = hw:FindFirstChild("ShopNPC")
-    if shop then
-        local cf = shop:IsA("Model") and shop:GetPivot() or (shop:IsA("BasePart") and shop.CFrame)
-        if cf then return cf + Vector3.new(0, 3, 6) end
-    end
-    
-    local portals = hw:FindFirstChild("Portals") or hw:FindFirstChild("Portal")
-    if portals then
-        local cf = portals:IsA("Model") and portals:GetPivot() or (portals:IsA("BasePart") and portals.CFrame)
-        if cf then return cf + Vector3.new(0, 3, 5) end
-    end
-    
-    if hw:IsA("Model") then
-        return hw:GetPivot() + Vector3.new(0, 5, 0)
-    end
-    
-    return nil
+    return CFrame.new(HalloweenData.LobbyPos)
 end
 
-local function getHalloweenArena()
+function getHalloweenArena()
     local hw = getHalloweenWorld()
     return hw and hw:FindFirstChild("HalloweenArena")
 end
 
-local function getHalloweenArenaCenter()
+function getHalloweenArenaCenter()
     local arena = getHalloweenArena()
-    if not arena then return nil end
-    
-    for _, name in ipairs({"Center", "Platform", "Floor", "Base", "Pad", "Arena"}) do
-        local part = arena:FindFirstChild(name, true)
-        if part and part:IsA("BasePart") then
-            return part.Position
-        end
-    end
-    
-    if arena:IsA("Model") then
-        return arena:GetPivot().Position
-    end
-    
-    for _, child in ipairs(arena:GetChildren()) do
-        if child:IsA("BasePart") then
-            return child.Position
-        elseif child:IsA("Model") then
-            return child:GetPivot().Position
-        end
-    end
-    
-    return nil
-end
-
-local function getHalloweenArenaPortal()
-    local hw = getHalloweenWorld()
-    if not hw then return nil, nil end
-    
-    local arena = hw:FindFirstChild("HalloweenArena")
     if arena then
-        local p = arena:FindFirstChild("Portal") or arena:FindFirstChild("Door") or arena:FindFirstChild("Pad") or arena:FindFirstChild("Enter") or arena:FindFirstChild("Hitbox")
-        if p then
-            local part = p:FindFirstChild("Hitbox") or (p:IsA("BasePart") and p) or p:FindFirstChildWhichIsA("BasePart", true)
-            local cf = (part and part.CFrame) or (p:IsA("Model") and p:GetPivot())
-            if cf then return part or p, cf end
+        local c = arena:FindFirstChild("Center") or arena:FindFirstChild("Spawn")
+        if c and c:IsA("BasePart") then
+            return c.Position
         end
     end
-    
-    local hwPortal = hw:FindFirstChild("Portal")
-    if hwPortal then
-        local part = hwPortal:FindFirstChild("Hitbox") or (hwPortal:IsA("BasePart") and hwPortal) or hwPortal:FindFirstChildWhichIsA("BasePart", true)
-        local cf = (part and part.CFrame) or (hwPortal:IsA("Model") and hwPortal:GetPivot())
-        if cf then return part or hwPortal, cf end
-    end
-    
-    local center = getHalloweenArenaCenter()
-    if center then
-        return nil, CFrame.new(center.X, center.Y + 3, center.Z)
-    end
-    
-    return nil, nil
+    return HalloweenData.ArenaCenter
 end
 
-local function getHalloweenWaveNumber()
+function getHalloweenArenaPortal()
+    return nil, CFrame.new(HalloweenData.LobbyPos)
+end
+
+function getHalloweenWaveNumber()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if not pgui then return nil end
-    
     local sg = pgui:FindFirstChild("ScreenGui")
     if sg then
         local top = sg:FindFirstChild("Top")
@@ -2549,174 +2501,188 @@ local function getHalloweenWaveNumber()
     return nil
 end
 
-local function isInsideHalloweenArena()
+function isInsideHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
-    -- 1. Verifica indicadores de Onda / Wave na interface
+    local arenaCenter = getHalloweenArenaCenter()
+    local dist2D = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
+    if dist2D < 260 or hrp.Position.Z > 700 then
+        return true
+    end
+    
     local wave = getHalloweenWaveNumber()
     if wave and wave > 0 then return true end
     
-    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local sg = pgui and pgui:FindFirstChild("ScreenGui")
-    if sg then
-        local top = sg:FindFirstChild("Top")
-        if top then
-            local hwMode = top:FindFirstChild("HalloweenMode") or top:FindFirstChild("HalloweenArena")
-            if hwMode and hwMode.Visible then return true end
+    for _, c in ipairs(workspace:GetChildren()) do
+        if c.Name:find("HalloweenArena") and #c:GetChildren() > 0 then
+            return true
         end
-        for _, d in ipairs(sg:GetDescendants()) do
-            if d:IsA("TextLabel") and d.Visible then
-                local txt = d.Text:lower()
-                if txt:find("milhos doce") or txt:find("capacete de abóbora") or txt:find("capacete de abobora") then
-                    return true
-                end
-            end
-        end
-    end
-    
-    -- 2. Distância espacial até a HalloweenArena
-    local arenaCenter = getHalloweenArenaCenter()
-    if arenaCenter then
-        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
-        if dist < 220 then return true end
     end
     
     return false
 end
 
-local function handleHalloweenPartyMenu()
+function findVacantHalloweenPad()
+    local hw = getHalloweenWorld()
+    local teleporters = hw and hw:FindFirstChild("Scriptable") and hw.Scriptable:FindFirstChild("Teleporters")
+    
+    if teleporters then
+        local padsList = teleporters:GetChildren()
+        table.sort(padsList, function(a, b) return tostring(a.Name) < tostring(b.Name) end)
+        
+        for _, pad in ipairs(padsList) do
+            local padIdx = tonumber(pad.Name) or 1
+            local defaultPos = HalloweenData.Pads[padIdx] or HalloweenData.Pads[1]
+            local padPos = defaultPos
+            
+            local displayPart = pad:FindFirstChild("DisplayPart")
+            if displayPart and displayPart:IsA("BasePart") then
+                padPos = displayPart.Position
+            end
+            
+            local occupiedByPlayer = false
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    local pDist = (plr.Character.HumanoidRootPart.Position - padPos).Magnitude
+                    if pDist < 7 then
+                        occupiedByPlayer = true
+                        break
+                    end
+                end
+            end
+            
+            if not occupiedByPlayer then
+                local isExplicitlyVacant = false
+                local isExplicitlyFull = false
+                for _, lbl in ipairs(pad:GetDescendants()) do
+                    if lbl:IsA("TextLabel") and lbl.Visible and #lbl.Text > 0 then
+                        local t = lbl.Text:lower()
+                        if t:find("vacant") or t:find("vago") then
+                            isExplicitlyVacant = true
+                        elseif t:match("%d+/%d+") or t:find("starting") then
+                            isExplicitlyFull = true
+                        end
+                    end
+                end
+                
+                if isExplicitlyVacant or not isExplicitlyFull then
+                    local touchPart = (pad:FindFirstChild("TouchParts") and pad.TouchParts:FindFirstChildWhichIsA("BasePart"))
+                        or displayPart
+                        or pad:FindFirstChildWhichIsA("BasePart", true)
+                    return padPos, touchPart
+                end
+            end
+        end
+    end
+    
+    local bestPos = HalloweenData.Pads[1]
+    local maxMinDist = -1
+    for _, pos in ipairs(HalloweenData.Pads) do
+        local minPlrDist = 9999
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local d = (plr.Character.HumanoidRootPart.Position - pos).Magnitude
+                if d < minPlrDist then minPlrDist = d end
+            end
+        end
+        if minPlrDist > 7 and minPlrDist > maxMinDist then
+            maxMinDist = minPlrDist
+            bestPos = pos
+        end
+    end
+    
+    return bestPos, nil
+end
+
+function handleHalloweenPartyMenu()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if not pgui then return false end
     
     local screenGui = pgui:FindFirstChild("ScreenGui")
-    local menus = screenGui and screenGui:FindFirstChild("Menus")
+    if not screenGui then return false end
     
-    local candidateMenus = {}
-    if menus then
-        for _, child in ipairs(menus:GetChildren()) do
-            local n = child.Name:lower()
-            if n:find("party") or n:find("halloween") or n:find("arena") or n:find("dungeon") or n:find("raid") or n:find("match") or n:find("lobby") then
-                table.insert(candidateMenus, child)
-            elseif child:IsA("GuiObject") and child.Visible then
-                table.insert(candidateMenus, child)
-            end
-        end
-    end
-    if screenGui then
-        for _, child in ipairs(screenGui:GetChildren()) do
-            if child ~= menus and child:IsA("GuiObject") and child.Visible then
-                local n = child.Name:lower()
-                if n:find("party") or n:find("halloween") or n:find("arena") or n:find("dungeon") or n:find("raid") or n:find("match") then
-                    table.insert(candidateMenus, child)
-                end
-            end
-        end
-    end
+    local didAction = false
     
-    for _, sg in ipairs(pgui:GetChildren()) do
-        if sg:IsA("ScreenGui") and sg.Enabled and not sg.Name:match("^SuperHeroEvolutionHub") and sg ~= screenGui then
-            for _, child in ipairs(sg:GetChildren()) do
-                if child:IsA("GuiObject") and child.Visible then
-                    local n = child.Name:lower()
-                    if n:find("party") or n:find("halloween") or n:find("arena") or n:find("match") then
-                        table.insert(candidateMenus, child)
+    -- 1. Janela "Select Party Size" (Menus.CreateParty)
+    local menus = screenGui:FindFirstChild("Menus")
+    local createParty = menus and menus:FindFirstChild("CreateParty")
+    if createParty and createParty.Visible then
+        local main = (createParty:FindFirstChild("Container") and createParty.Container:FindFirstChild("Main")) or createParty:FindFirstChild("Main", true)
+        if main then
+            local sizeSelector = main:FindFirstChild("SizeSelector")
+            local size1Btn = (sizeSelector and sizeSelector:FindFirstChild("Size1"))
+            if not size1Btn and sizeSelector then
+                for _, b in ipairs(sizeSelector:GetChildren()) do
+                    if b:IsA("GuiButton") and (b.Name == "Size1" or (b:FindFirstChildWhichIsA("TextLabel") and b:FindFirstChildWhichIsA("TextLabel").Text == "1")) then
+                        size1Btn = b
+                        break
                     end
                 end
             end
-        end
-    end
-
-    local clickedAction = false
-    
-    for _, menu in ipairs(candidateMenus) do
-        -- A) Clicar em "Criar Party" / "Create" se visível
-        for _, btn in ipairs(menu:GetDescendants()) do
-            if btn:IsA("GuiButton") and btn.Visible then
-                local bName = btn.Name:lower()
-                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
-                if bName:find("create") or bName:find("criar") or bName:find("host") or bText:find("create") or bText:find("criar") or bText:find("host") then
-                    if firesignal then
-                        firesignal(btn.Activated)
-                        firesignal(btn.MouseButton1Click)
-                    end
-                    clickedAction = true
-                    task.wait(0.1)
-                    break
-                end
+            if size1Btn and size1Btn:IsA("GuiButton") and firesignal then
+                firesignal(size1Btn.Activated)
+                firesignal(size1Btn.MouseButton1Click)
+                didAction = true
             end
-        end
-        
-        -- B) Garantir contagem de 1 Player (Solo)
-        for _, tb in ipairs(menu:GetDescendants()) do
-            if tb:IsA("TextBox") and tb.Visible then
-                local tName = tb.Name:lower()
-                if tName:find("player") or tName:find("max") or tName:find("count") or tName:find("limit") or tb.Text:match("^%d+$") then
-                    if tb.Text ~= "1" then
-                        tb.Text = "1"
-                        pcall(function() tb:ReleaseFocus(true) end)
-                        clickedAction = true
+            
+            local createBtn = main:FindFirstChild("Create")
+            if not createBtn then
+                for _, b in ipairs(main:GetChildren()) do
+                    if b:IsA("GuiButton") and (b.Name == "Create" or (b:FindFirstChildWhichIsA("TextLabel") and b:FindFirstChildWhichIsA("TextLabel").Text:lower():find("create"))) then
+                        createBtn = b
+                        break
                     end
                 end
             end
-        end
-        
-        for _, btn in ipairs(menu:GetDescendants()) do
-            if btn:IsA("GuiButton") and btn.Visible then
-                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
-                local bName = btn.Name:lower()
-                if bText == "1" or bText == "solo" or bText == "1 player" or bName == "1" or bName == "solo" or bName == "single" then
-                    if firesignal then
-                        firesignal(btn.Activated)
-                        firesignal(btn.MouseButton1Click)
-                    end
-                    clickedAction = true
-                    break
-                end
-            end
-        end
-        
-        for _, btn in ipairs(menu:GetDescendants()) do
-            if btn:IsA("GuiButton") and btn.Visible then
-                local bText = (btn:IsA("TextButton") and btn.Text) or ""
-                local bName = btn.Name:lower()
-                if bText == "-" or bText == "<" or bName:find("decrease") or bName:find("minus") or bName:find("prev") then
-                    for _ = 1, 4 do
-                        if firesignal then
-                            firesignal(btn.Activated)
-                            firesignal(btn.MouseButton1Click)
-                        end
-                    end
-                    clickedAction = true
-                    break
-                end
-            end
-        end
-        
-        -- C) Clicar em "Iniciar" / "Start" / "Play" / "Ready"
-        for _, btn in ipairs(menu:GetDescendants()) do
-            if btn:IsA("GuiButton") and btn.Visible then
-                local bName = btn.Name:lower()
-                local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
-                if bName:find("start") or bName:find("iniciar") or bName:find("ready") or bName:find("pronto") or bName:find("play") or bName:find("enter") or bText:find("start") or bText:find("iniciar") or bText:find("ready") or bText:find("pronto") or bText:find("play") or bText:find("enter") then
-                    if firesignal then
-                        firesignal(btn.Activated)
-                        firesignal(btn.MouseButton1Click)
-                    end
-                    clickedAction = true
-                    task.wait(0.1)
-                    break
-                end
+            if createBtn and createBtn:IsA("GuiButton") and firesignal then
+                firesignal(createBtn.Activated)
+                firesignal(createBtn.MouseButton1Click)
+                didAction = true
             end
         end
     end
     
-    -- Dispara Remotes conhecidos de Party / Halloween se existirem
+    -- 2. Barra de Controle da Party (Bottom.PartyControls -> Botão "Começar" / "Start")
+    local bottom = screenGui:FindFirstChild("Bottom")
+    local partyControls = bottom and bottom:FindFirstChild("PartyControls")
+    if partyControls and (partyControls.Visible or partyControls:FindFirstChild("Start")) then
+        local startBtn = partyControls:FindFirstChild("Start")
+        if startBtn and startBtn:IsA("GuiButton") and startBtn.Visible then
+            if firesignal then
+                firesignal(startBtn.Activated)
+                firesignal(startBtn.MouseButton1Click)
+            end
+            didAction = true
+        end
+    end
+    
+    -- 3. Varredura para botões "Começar" ou "Create"
+    for _, btn in ipairs(screenGui:GetDescendants()) do
+        if btn:IsA("GuiButton") and btn.Visible then
+            local txt = (btn:IsA("TextButton") and btn.Text) or (btn:FindFirstChildWhichIsA("TextLabel") and btn:FindFirstChildWhichIsA("TextLabel").Text) or ""
+            local low = txt:lower()
+            if low:find("começar") or low:find("comecar") then
+                if firesignal then
+                    firesignal(btn.Activated)
+                    firesignal(btn.MouseButton1Click)
+                end
+                didAction = true
+            elseif (low == "create" or low == "criar") and btn:FindFirstAncestor("CreateParty") then
+                if firesignal then
+                    firesignal(btn.Activated)
+                    firesignal(btn.MouseButton1Click)
+                end
+                didAction = true
+            end
+        end
+    end
+    
+    -- 4. Dispara os Remotes Oficiais
     pcall(function()
         if RemotePartyCreate then
             RemotePartyCreate:FireServer(1)
-            RemotePartyCreate:FireServer({MaxPlayers = 1})
         end
         if RemotePartyStart then
             RemotePartyStart:FireServer()
@@ -2727,10 +2693,10 @@ local function handleHalloweenPartyMenu()
         end
     end)
     
-    return clickedAction
+    return didAction
 end
 
-local function enterHalloweenArena()
+function enterHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2738,56 +2704,42 @@ local function enterHalloweenArena()
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
     if isInsideHalloweenArena() then return true end
     
-    local hw = getHalloweenWorld()
-    if not hw then return false end
-    
-    local lobbyCF = getHalloweenLobbyCFrame()
-    if lobbyCF then
-        local distToHW = (hrp.Position - lobbyCF.Position).Magnitude
-        if distToHW > 1500 then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            hrp.CFrame = lobbyCF
-            task.wait(0.3)
-            char = LocalPlayer.Character
-            hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return false end
-        end
+    local distToLobby = (hrp.Position - HalloweenData.LobbyPos).Magnitude
+    if distToLobby > 500 then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(HalloweenData.LobbyPos)
+        task.wait(0.25)
+        char = LocalPlayer.Character
+        hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
     end
     
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
     if isInsideHalloweenArena() then return true end
     
-    local portalPart, portalCF = getHalloweenArenaPortal()
-    if portalCF then
+    local padPos, touchPart = findVacantHalloweenPad()
+    if padPos then
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
-        hrp.CFrame = portalCF + Vector3.new(0, 1.5, 0)
+        hrp.CFrame = CFrame.new(padPos.X, padPos.Y + 1.5, padPos.Z)
         task.wait(0.08)
         
-        if portalPart and portalPart:IsA("BasePart") and firetouchinterest then
-            firetouchinterest(hrp, portalPart, 0)
+        if touchPart and touchPart:IsA("BasePart") and firetouchinterest then
+            firetouchinterest(hrp, touchPart, 0)
             task.wait(0.04)
-            firetouchinterest(hrp, portalPart, 1)
-        end
-        
-        local targetPromptParent = portalPart or (hw and hw:FindFirstChild("Portal")) or (hw and hw:FindFirstChild("HalloweenArena"))
-        if targetPromptParent and fireproximityprompt then
-            for _, p in ipairs(targetPromptParent:GetDescendants()) do
-                if p:IsA("ProximityPrompt") then
-                    pcall(fireproximityprompt, p)
-                end
-            end
+            firetouchinterest(hrp, touchPart, 1)
         end
     end
     
-    task.wait(0.15)
+    task.wait(0.12)
     handleHalloweenPartyMenu()
-    task.wait(0.2)
+    task.wait(0.15)
+    
     return isInsideHalloweenArena()
 end
 
--- Thread Principal do Auto Halloween Arena
+-- Thread Principal do Auto Halloween Arena & Candy Farm
 spawnThread(function()
     while true do
         if Config.AutoHalloweenArena and not IsInBossFight then
@@ -2810,38 +2762,33 @@ spawnThread(function()
                 end
                 
                 if isHalloweenDeadWaiting then
-                    task.wait(1.0)
+                    task.wait(0.8)
                     isHalloweenDeadWaiting = false
                 end
                 
                 if isInsideHalloweenArena() then
                     local waveNum = getHalloweenWaveNumber()
-                    local waveTxt = waveNum and ("Onda " .. tostring(waveNum)) or "Em Combate"
+                    local waveTxt = waveNum and ("Onda " .. tostring(waveNum)) or "Farmando Candy 🎃"
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
-                        HalloweenStatsCard.Update(string.format("Farmando Arena (%s - 1P)", waveTxt), Themes.HalloweenOrange)
+                        HalloweenStatsCard.Update(string.format("Arena Ativa: %s", waveTxt), Themes.HalloweenOrange)
                     end
                     
+                    local centerPos = getHalloweenArenaCenter()
                     if not halloweenArenaEnteredCFrame then
-                        local centerPos = getHalloweenArenaCenter()
-                        if centerPos then
-                            halloweenArenaEnteredCFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
-                        else
-                            halloweenArenaEnteredCFrame = hrp.CFrame
-                        end
+                        halloweenArenaEnteredCFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
                         hrp.CFrame = halloweenArenaEnteredCFrame
                     end
                     
                     if Config.HalloweenStayCenter and halloweenArenaEnteredCFrame then
-                        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(halloweenArenaEnteredCFrame.Position.X, 0, halloweenArenaEnteredCFrame.Position.Z)).Magnitude
+                        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(centerPos.X, 0, centerPos.Z)).Magnitude
                         if dist > 3 then
-                            hrp.CFrame = halloweenArenaEnteredCFrame
+                            hrp.CFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
                         end
                         hum:Move(Vector3.zero, false)
                         hrp.AssemblyLinearVelocity = Vector3.zero
                         hrp.AssemblyAngularVelocity = Vector3.zero
                     end
                     
-                    -- Fica batendo continuamente em segundo plano
                     if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                     if RemotePlayerClick then RemotePlayerClick:FireServer() end
                     
@@ -2849,20 +2796,17 @@ spawnThread(function()
                 else
                     halloweenArenaEnteredCFrame = nil
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
-                        HalloweenStatsCard.Update("Entrando na Arena (Criando Party 1P)...", Color3.fromRGB(56, 122, 255))
+                        HalloweenStatsCard.Update("Indo ao Pad de Party (Criando 1P)...", Color3.fromRGB(56, 122, 255))
                     end
                     
-                    if os.clock() - lastHalloweenJoinAttempt > 2.0 then
-                        lastHalloweenJoinAttempt = os.clock()
-                        enterHalloweenArena()
-                    end
+                    enterHalloweenArena()
                 end
             end)
         else
             isHalloweenDeadWaiting = false
             halloweenArenaEnteredCFrame = nil
         end
-        task.wait(0.12)
+        task.wait(0.1)
     end
 end)
 
@@ -4424,7 +4368,7 @@ createButton(HalloweenTab, "🎃 Teleportar para Halloween World (Lobby)", false
     end
 end)
 
-createButton(HalloweenTab, "⚔️ Teleportar para Portal da Arena", false, function()
+createButton(HalloweenTab, "⚔️ Teleportar para Pads de Party (Fila Arena)", false, function()
     local p, cf = getHalloweenArenaPortal()
     if cf and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         LocalPlayer.Character.HumanoidRootPart.CFrame = cf + Vector3.new(0, 2, 0)
