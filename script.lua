@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791661002
+local SCRIPT_VERSION_TIMESTAMP = 1791661149
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2469,7 +2469,7 @@ function getHalloweenWaveNumber()
     return nil
 end
 
--- Detecção matemática perfeita: verifica estritamente se o jogador está fisicamente dentro da arena de combate (distância < 180 studs do centro)
+-- Detecção matemática exata: apenas verdadeiro se o personagem estiver fisicamente dentro do raio da arena de combate
 function isInsideHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2487,11 +2487,11 @@ function clickHalloweenButton(btn)
         for _, ev in ipairs({btn.Activated, btn.MouseButton1Click, btn.MouseButton1Up, btn.MouseButton1Down}) do
             pcall(function()
                 for _, conn in ipairs(getconnections(ev)) do
-                    if conn.Fire then
-                        conn:Fire()
-                        clicked = true
-                    elseif conn.Function then
+                    if conn.Function then
                         conn.Function()
+                        clicked = true
+                    elseif conn.Fire then
+                        conn:Fire()
                         clicked = true
                     end
                 end
@@ -2516,7 +2516,6 @@ end
 function findVacantHalloweenPad()
     local targetPos = HalloweenData.TargetPadPos
     
-    -- Verifica se outro jogador está no pad principal
     local isTargetOccupied = false
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
@@ -2532,7 +2531,6 @@ function findVacantHalloweenPad()
         return targetPos
     end
     
-    -- Se o pad principal estiver ocupado por outro jogador, busca outro livre
     for _, pos in ipairs(HalloweenData.Pads) do
         if pos ~= targetPos then
             local occupied = false
@@ -2562,7 +2560,7 @@ function handleHalloweenPartyMenu()
     
     local didAction = false
     
-    -- 1. Auto Cancela a tela de Revive para respawnar imediatamente
+    -- 1. Auto Cancela a tela de Revive para respawnar imediatamente sem delay
     local revive = screenGui:FindFirstChild("Revive")
     if revive and revive.Visible then
         local cancelBtn = revive:FindFirstChild("Cancel", true)
@@ -2583,7 +2581,6 @@ function handleHalloweenPartyMenu()
     if createParty and createParty.Visible then
         local main = (createParty:FindFirstChild("Container") and createParty.Container:FindFirstChild("Main")) or createParty:FindFirstChild("Main", true)
         if main then
-            -- Seleciona 1 jogador (Size1)
             local sizeSelector = main:FindFirstChild("SizeSelector")
             local size1Btn = (sizeSelector and sizeSelector:FindFirstChild("Size1"))
             if not size1Btn and sizeSelector then
@@ -2598,9 +2595,8 @@ function handleHalloweenPartyMenu()
                 clickHalloweenButton(size1Btn)
                 didAction = true
             end
-            task.wait(0.08)
+            task.wait(0.06)
             
-            -- Clica no botão verde "Create"
             local createBtn = main:FindFirstChild("Create")
             if not createBtn then
                 for _, b in ipairs(main:GetChildren()) do
@@ -2616,11 +2612,14 @@ function handleHalloweenPartyMenu()
             end
         end
         
-        -- Garante disparo via Remote oficial
+        -- Dispara Remote oficial e fecha o menu
         pcall(function()
             if RemotePartyCreate then
                 RemotePartyCreate:FireServer(1)
             end
+            local mc = require(ReplicatedStorage.Client.UIController.Controllers.MenuController)
+            if mc and mc.close then mc.close("CreateParty") end
+            createParty.Visible = false
         end)
     end
     
@@ -2634,7 +2633,7 @@ function handleHalloweenPartyMenu()
             didAction = true
         end
         
-        -- Garante disparo via Remote oficial
+        -- Dispara Remote oficial
         pcall(function()
             if RemotePartyStart then
                 RemotePartyStart:FireServer()
