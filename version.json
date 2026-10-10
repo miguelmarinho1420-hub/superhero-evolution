@@ -1,6 +1,6 @@
 {
-  "timestamp": 1791660884,
-  "commit": "ca477b5",
-  "message": "Fix Halloween pad teleport 1s delay and party auto start",
-  "date": "2026-10-10 16:34:46"
+  "timestamp": 1791661002,
+  "commit": "98d52ad",
+  "message": "Fix Halloween exact arena center dist check & auto party start",
+  "date": "2026-10-10 16:36:44"
 }
