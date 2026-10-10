@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791658864
+local SCRIPT_VERSION_TIMESTAMP = 1791660884
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2452,6 +2452,12 @@ function getHalloweenWaveNumber()
     if sg then
         local top = sg:FindFirstChild("Top")
         if top then
+            local em = top:FindFirstChild("EndlessMode")
+            local wl = (em and em:FindFirstChild("WaveLabel")) or top:FindFirstChild("WaveLabel", true)
+            if wl and wl:IsA("TextLabel") and wl.Visible and #wl.Text > 0 then
+                local num = wl.Text:match("%d+")
+                if num then return tonumber(num) end
+            end
             for _, d in ipairs(top:GetDescendants()) do
                 if d:IsA("TextLabel") and d.Visible and #d.Text > 0 then
                     local num = d.Text:match("[Oo]nda%s*(%d+)") or d.Text:match("[Ww]ave%s*(%d+)")
@@ -2459,37 +2465,67 @@ function getHalloweenWaveNumber()
                 end
             end
         end
-        for _, d in ipairs(sg:GetDescendants()) do
-            if d:IsA("TextLabel") and d.Visible and #d.Text > 0 then
-                local num = d.Text:match("[Oo]nda%s*(%d+)") or d.Text:match("[Ww]ave%s*(%d+)")
-                if num then return tonumber(num) end
-            end
-        end
     end
     return nil
 end
 
 function isInsideHalloweenArena()
+    -- Verificação 1: Atributo oficial do jogo no LocalPlayer
+    if LocalPlayer:GetAttribute("InEventArena") == "halloween_2026" then
+        return true
+    end
+    
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
+    -- Verificação 2: Proximidade física da arena de combate (distância < 180 studs do centro)
     local arenaCenter = getHalloweenArenaCenter()
-    local dist2D = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
-    if dist2D < 260 or hrp.Position.Z > 700 then
+    local dist = (hrp.Position - arenaCenter).Magnitude
+    if dist < 180 then
         return true
     end
     
+    -- Verificação 3: Label de Onda ativa no HUD enquanto estiver na área da arena (Z > 500)
     local wave = getHalloweenWaveNumber()
-    if wave and wave > 0 then return true end
-    
-    for _, c in ipairs(workspace:GetChildren()) do
-        if c.Name:find("HalloweenArena") and #c:GetChildren() > 0 then
-            return true
-        end
+    if wave and wave > 0 and hrp.Position.Z > 500 then
+        return true
     end
     
     return false
+end
+
+function clickHalloweenButton(btn)
+    if not btn then return false end
+    local clicked = false
+    if getconnections then
+        for _, ev in ipairs({btn.Activated, btn.MouseButton1Click, btn.MouseButton1Up, btn.MouseButton1Down}) do
+            pcall(function()
+                for _, conn in ipairs(getconnections(ev)) do
+                    if conn.Fire then
+                        conn:Fire()
+                        clicked = true
+                    elseif conn.Function then
+                        conn.Function()
+                        clicked = true
+                    end
+                end
+            end)
+        end
+    end
+    if not clicked and btn:IsA("GuiObject") then
+        pcall(function()
+            local pos = btn.AbsolutePosition
+            local sz = btn.AbsoluteSize
+            local cx = pos.X + sz.X / 2
+            local cy = pos.Y + sz.Y / 2
+            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
+            task.wait(0.04)
+            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
+            clicked = true
+        end)
+    end
+    return clicked
 end
 
 function findVacantHalloweenPad()
@@ -2541,18 +2577,22 @@ function handleHalloweenPartyMenu()
     
     local didAction = false
     
-    -- Auto Cancela a tela de Revive para respawnar imediatamente
+    -- 1. Auto Cancela a tela de Revive para respawnar imediatamente
     local revive = screenGui:FindFirstChild("Revive")
     if revive and revive.Visible then
         local cancelBtn = revive:FindFirstChild("Cancel", true)
-        if cancelBtn and firesignal then
-            firesignal(cancelBtn.Activated)
-            firesignal(cancelBtn.MouseButton1Click)
-            didAction = true
+        if cancelBtn then
+            clickHalloweenButton(cancelBtn)
         end
+        pcall(function()
+            local rc = Remotes and Remotes:FindFirstChild("ReviveChoice")
+            if rc then rc:FireServer("Cancel") end
+            revive.Visible = false
+        end)
+        didAction = true
     end
     
-    -- 1. Janela "Select Party Size" (Menus.CreateParty)
+    -- 2. Janela "Select Party Size" (Menus.CreateParty) -> Seleciona 1 jogador e clica Create
     local menus = screenGui:FindFirstChild("Menus")
     local createParty = menus and menus:FindFirstChild("CreateParty")
     if createParty and createParty.Visible then
@@ -2569,11 +2609,11 @@ function handleHalloweenPartyMenu()
                     end
                 end
             end
-            if size1Btn and size1Btn:IsA("GuiButton") and firesignal then
-                firesignal(size1Btn.Activated)
-                firesignal(size1Btn.MouseButton1Click)
+            if size1Btn then
+                clickHalloweenButton(size1Btn)
                 didAction = true
             end
+            task.wait(0.08)
             
             -- Clica no botão verde "Create"
             local createBtn = main:FindFirstChild("Create")
@@ -2585,62 +2625,52 @@ function handleHalloweenPartyMenu()
                     end
                 end
             end
-            if createBtn and createBtn:IsA("GuiButton") and firesignal then
-                firesignal(createBtn.Activated)
-                firesignal(createBtn.MouseButton1Click)
+            if createBtn then
+                clickHalloweenButton(createBtn)
                 didAction = true
             end
         end
+        
+        -- Garante disparo via Remote oficial
+        pcall(function()
+            if RemotePartyCreate then
+                RemotePartyCreate:FireServer(1)
+            end
+        end)
     end
     
-    -- 2. Barra de Controle da Party (Bottom.PartyControls -> Botão "Começar" / "Start")
+    -- 3. Barra de Controle da Party (Bottom.PartyControls -> Botão "Começar" / "Start")
     local bottom = screenGui:FindFirstChild("Bottom")
     local partyControls = bottom and bottom:FindFirstChild("PartyControls")
     if partyControls and (partyControls.Visible or partyControls:FindFirstChild("Start")) then
         local startBtn = partyControls:FindFirstChild("Start")
         if startBtn and startBtn:IsA("GuiButton") and startBtn.Visible then
-            if firesignal then
-                firesignal(startBtn.Activated)
-                firesignal(startBtn.MouseButton1Click)
-            end
+            clickHalloweenButton(startBtn)
             didAction = true
         end
+        
+        -- Garante disparo via Remote oficial
+        pcall(function()
+            if RemotePartyStart then
+                RemotePartyStart:FireServer()
+            end
+        end)
     end
     
-    -- 3. Varredura para botões "Começar" ou "Create" visíveis
+    -- 4. Varredura para botões "Começar" ou "Create" visíveis
     for _, btn in ipairs(screenGui:GetDescendants()) do
         if btn:IsA("GuiButton") and btn.Visible then
             local txt = (btn:IsA("TextButton") and btn.Text) or (btn:FindFirstChildWhichIsA("TextLabel") and btn:FindFirstChildWhichIsA("TextLabel").Text) or ""
             local low = txt:lower()
-            if low:find("começar") or low:find("comecar") then
-                if firesignal then
-                    firesignal(btn.Activated)
-                    firesignal(btn.MouseButton1Click)
-                end
+            if low:find("começar") or low:find("comecar") or low == "start" then
+                clickHalloweenButton(btn)
                 didAction = true
             elseif (low == "create" or low == "criar") and btn:FindFirstAncestor("CreateParty") then
-                if firesignal then
-                    firesignal(btn.Activated)
-                    firesignal(btn.MouseButton1Click)
-                end
+                clickHalloweenButton(btn)
                 didAction = true
             end
         end
     end
-    
-    -- 4. Dispara os Remotes Oficiais de Party e Halloween diretamente
-    pcall(function()
-        if RemotePartyCreate then
-            RemotePartyCreate:FireServer(1)
-        end
-        if RemotePartyStart then
-            RemotePartyStart:FireServer()
-        end
-        if RemoteHalloweenJoinRequest then
-            RemoteHalloweenJoinRequest:FireServer(1)
-            RemoteHalloweenJoinRequest:FireServer("HalloweenArena")
-        end
-    end)
     
     return didAction
 end
@@ -2653,10 +2683,24 @@ function enterHalloweenArena()
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
     if isInsideHalloweenArena() then return true end
     
-    -- Posição exata indicada pelo usuário: X=-1652.00, Y=4.73, Z=-7.40
     local targetPos = findVacantHalloweenPad()
     
-    -- Teleporta o personagem diretamente para o local solicitado
+    -- Se estiver fora do Halloween World (ex: no Spawn principal da cidade)
+    local distToPad = (hrp.Position - targetPos).Magnitude
+    if distToPad > 3000 then
+        pcall(function()
+            local req = Remotes and Remotes:FindFirstChild("RequestEventWorldTeleport")
+            if req then req:InvokeServer("halloween_2026") end
+        end)
+        task.wait(0.3)
+    end
+    
+    -- Carrega a área em torno do pad
+    pcall(function()
+        workspace:RequestStreamAroundAsync(targetPos)
+    end)
+    
+    -- Teleporta o personagem diretamente para o local solicitado (X=-1652.00, Y=4.73, Z=-7.40)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     hrp.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
@@ -2665,7 +2709,7 @@ function enterHalloweenArena()
     pcall(function()
         hum:Move(Vector3.new(0.05, 0, 0.05), false)
     end)
-    task.wait(0.08)
+    task.wait(0.1)
     
     -- Dispara firetouchinterest em partes do pad se existirem perto
     pcall(function()
@@ -2673,7 +2717,7 @@ function enterHalloweenArena()
         local teleporters = hw and hw:FindFirstChild("Scriptable") and hw.Scriptable:FindFirstChild("Teleporters")
         if teleporters then
             for _, p in ipairs(teleporters:GetDescendants()) do
-                if p:IsA("BasePart") and (p.Position - targetPos).Magnitude < 10 then
+                if p:IsA("BasePart") and (p.Position - targetPos).Magnitude < 15 then
                     if firetouchinterest then
                         firetouchinterest(hrp, p, 0)
                         task.wait(0.01)
@@ -2684,11 +2728,22 @@ function enterHalloweenArena()
         end
     end)
     
-    task.wait(0.12)
+    task.wait(0.2)
     -- Seleciona 1 player, clica Create, clica Começar
     handleHalloweenPartyMenu()
-    task.wait(0.15)
     
+    -- Dispara os Remotes diretamente
+    pcall(function()
+        if RemotePartyCreate then
+            RemotePartyCreate:FireServer(1)
+        end
+        task.wait(0.15)
+        if RemotePartyStart then
+            RemotePartyStart:FireServer()
+        end
+    end)
+    
+    task.wait(0.2)
     return isInsideHalloweenArena()
 end
 
@@ -2706,14 +2761,14 @@ spawnThread(function()
                 if isDead then
                     -- Cancela o popup de Revive imediatamente para não prender o respawn
                     pcall(function()
+                        local rc = Remotes and Remotes:FindFirstChild("ReviveChoice")
+                        if rc then rc:FireServer("Cancel") end
                         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
                         local revive = pgui and pgui:FindFirstChild("ScreenGui") and pgui.ScreenGui:FindFirstChild("Revive")
                         if revive and revive.Visible then
+                            revive.Visible = false
                             local cancelBtn = revive:FindFirstChild("Cancel", true)
-                            if cancelBtn and firesignal then
-                                firesignal(cancelBtn.Activated)
-                                firesignal(cancelBtn.MouseButton1Click)
-                            end
+                            if cancelBtn then clickHalloweenButton(cancelBtn) end
                         end
                     end)
                     
@@ -2728,7 +2783,8 @@ spawnThread(function()
                     return
                 end
                 
-                -- REGRA SOLICITADA: Assim que renascer, espera exatamente 1 segundo antes de teleportar!
+                -- REGRA SOLICITADA PELO USUÁRIO:
+                -- Assim que renascer, aguarda exatamente 1 segundo antes de teleportar!
                 if isHalloweenDeadWaiting then
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
                         HalloweenStatsCard.Update("Renasceu! Aguardando 1s para teleportar... ⏱️", Color3.fromRGB(255, 200, 60))
@@ -2748,12 +2804,11 @@ spawnThread(function()
                     local centerPos = getHalloweenArenaCenter()
                     if not halloweenArenaEnteredCFrame then
                         halloweenArenaEnteredCFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
-                        hrp.CFrame = halloweenArenaEnteredCFrame
                     end
                     
-                    if Config.HalloweenStayCenter and halloweenArenaEnteredCFrame then
+                    if Config.HalloweenStayCenter and centerPos then
                         local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(centerPos.X, 0, centerPos.Z)).Magnitude
-                        if dist > 3 then
+                        if dist > 8 then
                             hrp.CFrame = CFrame.new(centerPos.X, hrp.Position.Y, centerPos.Z)
                         end
                         hum:Move(Vector3.zero, false)
