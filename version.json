@@ -1,6 +1,6 @@
 {
-  "timestamp": 1791691241,
-  "commit": "ccc299d",
-  "message": "Fix: esperar personagem morrer no evento de Halloween antes de reiniciar e travar estado de partida",
-  "date": "2026-10-11 01:00:43"
+  "timestamp": 1791700795,
+  "commit": "08a6705",
+  "message": "Fix: ativacao da arena Halloween pelo servidor sem teleporte prematuro",
+  "date": "2026-10-11 03:39:57"
 }
