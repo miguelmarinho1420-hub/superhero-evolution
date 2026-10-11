@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791661923
+local SCRIPT_VERSION_TIMESTAMP = 1791691241
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2398,6 +2398,7 @@ end)
 -- ══════════════════════════════════════════════════════════════
 -- 5. MOTOR DO AUTO HALLOWEEN ARENA (AUTO FARM CANDY NA ARENA DE HALLOWEEN)
 -- ══════════════════════════════════════════════════════════════
+isInHalloweenMatch = false
 isHalloweenDeadWaiting = false
 isEnteringHalloweenPad = false
 halloweenArenaEnteredCFrame = nil
@@ -2471,15 +2472,38 @@ function getHalloweenWaveNumber()
     return nil
 end
 
--- Detecção matemática exata: apenas verdadeiro se o personagem estiver fisicamente dentro da arena de combate (distância < 180 studs)
+-- Detecção segura e multivariável: verifica se o jogador está na arena física ou em combate no evento
 function isInsideHalloweenArena()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
+    -- 1. Atributo oficial do jogo no LocalPlayer
+    local inEventAttr = LocalPlayer:GetAttribute("InEventArena")
+    if inEventAttr and tostring(inEventAttr):lower():find("halloween") then
+        return true
+    end
+    
+    -- 2. Indicador de Onda ativo na UI
+    if getHalloweenWaveNumber() ~= nil then
+        return true
+    end
+    
+    -- 3. Posição no eixo Z (Pads ficam em Z ≈ -5, Arena fica em Z ≈ 1241)
+    if hrp.Position.Z > 350 then
+        return true
+    end
+    
+    -- 4. Distância até o centro da arena
     local arenaCenter = getHalloweenArenaCenter()
-    local dist = (hrp.Position - arenaCenter).Magnitude
-    return dist < 180
+    if arenaCenter then
+        local dist = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
+        if dist < 350 then
+            return true
+        end
+    end
+    
+    return false
 end
 
 function clickHalloweenButton(btn)
@@ -2575,6 +2599,21 @@ function handleHalloweenPartyMenu()
         didAction = true
     end
     
+    -- Se já estiver dentro do evento ou com partida em andamento, NÃO clica em Start ou Create
+    if isInHalloweenMatch or isInsideHalloweenArena() then
+        local menus = screenGui:FindFirstChild("Menus")
+        local createParty = menus and menus:FindFirstChild("CreateParty")
+        if createParty and createParty.Visible then
+            createParty.Visible = false
+        end
+        local bottom = screenGui:FindFirstChild("Bottom")
+        local partyControls = bottom and bottom:FindFirstChild("PartyControls")
+        if partyControls and partyControls.Visible then
+            partyControls.Visible = false
+        end
+        return didAction
+    end
+    
     -- 2. Janela "Select Party Size" (Menus.CreateParty) -> Seleciona 1 jogador e clica Create
     local menus = screenGui:FindFirstChild("Menus")
     local createParty = menus and menus:FindFirstChild("CreateParty")
@@ -2666,10 +2705,15 @@ function enterHalloweenArena()
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return false end
     if not Config.AutoHalloweenArena or IsInBossFight then return false end
-    if isInsideHalloweenArena() then return true end
+    if isInHalloweenMatch or isInsideHalloweenArena() then
+        isInHalloweenMatch = true
+        return true
+    end
     if isEnteringHalloweenPad then return false end
+    if isHalloweenDeadWaiting then return false end
     
     isEnteringHalloweenPad = true
+    local startedMatch = false
     
     pcall(function()
         local padPos, padIndex = findVacantHalloweenPad()
@@ -2685,7 +2729,7 @@ function enterHalloweenArena()
             pcall(function()
                 workspace:RequestStreamAroundAsync(padPos)
             end)
-            task.wait(0.4)
+            task.wait(0.35)
         end
         
         -- 2. Entra no Pad (centro do SpawnPart)
@@ -2726,7 +2770,7 @@ function enterHalloweenArena()
                 local s1 = main:FindFirstChild("Size1", true)
                 local create = main:FindFirstChild("Create", true)
                 if s1 then clickHalloweenButton(s1) end
-                task.wait(0.1)
+                task.wait(0.08)
                 if create then clickHalloweenButton(create) end
             end
         end
@@ -2738,12 +2782,12 @@ function enterHalloweenArena()
         local pc = sg and sg:FindFirstChild("Bottom") and sg.Bottom:FindFirstChild("PartyControls")
         local t1 = os.clock()
         while os.clock() - t1 < 2.0 do
-            if (pc and pc.Visible) or isInsideHalloweenArena() then break end
+            if (pc and (pc.Visible or pc:FindFirstChild("Start"))) or isInsideHalloweenArena() then break end
             task.wait(0.05)
         end
         
         -- 7. Clica no botão Começar (Start)
-        if pc and pc.Visible then
+        if pc and (pc.Visible or pc:FindFirstChild("Start")) then
             local startBtn = pc:FindFirstChild("Start")
             if startBtn then clickHalloweenButton(startBtn) end
         end
@@ -2751,31 +2795,82 @@ function enterHalloweenArena()
         local psRemote = Remotes and Remotes:FindFirstChild("PartyStart")
         if psRemote then psRemote:FireServer() end
         
-        -- 8. Aguarda transição para dentro da arena (até 2s)
+        -- BLOQUEIO IMEDIATO: Partida iniciada com sucesso!
+        isInHalloweenMatch = true
+        startedMatch = true
+        lastHalloweenJoinAttempt = os.clock()
+        
+        if cp then cp.Visible = false end
+        
+        -- 8. Aguarda transição para dentro da arena (até 3.5s)
         local t2 = os.clock()
-        while os.clock() - t2 < 2.0 do
+        while os.clock() - t2 < 3.5 do
             if isInsideHalloweenArena() then break end
             task.wait(0.1)
+        end
+        
+        -- Se o jogo iniciou a partida mas não moveu o personagem, posiciona diretamente na Arena
+        if not isInsideHalloweenArena() and startedMatch then
+            local arenaCenter = getHalloweenArenaCenter()
+            if arenaCenter and hrp then
+                hrp.CFrame = CFrame.new(arenaCenter.X, arenaCenter.Y + 3, arenaCenter.Z)
+                task.wait(0.2)
+            end
         end
     end)
     
     isEnteringHalloweenPad = false
-    return isInsideHalloweenArena()
+    return startedMatch or isInsideHalloweenArena()
+end
+
+-- Conexão reativa para detecção instantânea de morte no evento
+local function attachHalloweenDeathHook(character)
+    if not character then return end
+    local hum = character:WaitForChild("Humanoid", 5)
+    if hum then
+        hum.Died:Connect(function()
+            if Config.AutoHalloweenArena then
+                pcall(function()
+                    local rc = Remotes and Remotes:FindFirstChild("ReviveChoice")
+                    if rc then rc:FireServer("Cancel") end
+                end)
+                isHalloweenDeadWaiting = true
+                isInHalloweenMatch = false
+                isEnteringHalloweenPad = false
+                halloweenArenaEnteredCFrame = nil
+                if HalloweenStatsCard and HalloweenStatsCard.Update then
+                    HalloweenStatsCard.Update("Morreu no Evento. Aguardando Respawn... ⚡", Color3.fromRGB(255, 185, 55))
+                end
+            end
+        end)
+    end
+end
+
+table.insert(ActiveConnections, LocalPlayer.CharacterAdded:Connect(function(newChar)
+    task.defer(function()
+        attachHalloweenDeathHook(newChar)
+    end)
+end))
+
+if LocalPlayer.Character then
+    attachHalloweenDeathHook(LocalPlayer.Character)
 end
 
 -- Thread Principal do Auto Halloween Arena & Candy Farm (Loop Contínuo com Espera de 1s de Morte)
 spawnThread(function()
+    local lastLobbyCheck = 0
+    
     while true do
         if Config.AutoHalloweenArena and not IsInBossFight then
             pcall(function()
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local isDead = (not char or not hum or hum.Health <= 0 or not hrp)
+                local isDead = (not char or not hum or hum.Health <= 0 or not hrp or hum:GetState() == Enum.HumanoidStateType.Dead)
                 
-                -- Se morreu na Arena
+                -- ── 1. PERSONAGEM MORTO (NA ARENA OU NO EVENTO) ──
                 if isDead then
-                    -- Cancela o popup de Revive imediatamente para não prender o respawn
+                    -- Cancela o popup de Revive imediatamente para liberar o respawn
                     pcall(function()
                         local rc = Remotes and Remotes:FindFirstChild("ReviveChoice")
                         if rc then rc:FireServer("Cancel") end
@@ -2790,33 +2885,51 @@ spawnThread(function()
                     
                     if not isHalloweenDeadWaiting then
                         isHalloweenDeadWaiting = true
+                        isInHalloweenMatch = false -- PARTIDA ENCERRADA PELA MORTE!
                         isEnteringHalloweenPad = false
                         halloweenArenaEnteredCFrame = nil
                         if HalloweenStatsCard and HalloweenStatsCard.Update then
-                            HalloweenStatsCard.Update("Morreu na Arena. Aguardando Respawn... ⚡", Color3.fromRGB(255, 185, 55))
+                            HalloweenStatsCard.Update("Morreu no Evento. Aguardando Respawn... ⚡", Color3.fromRGB(255, 185, 55))
                         end
                     end
                     task.wait(0.2)
                     return
                 end
                 
-                -- REGRA SOLICITADA PELO USUÁRIO:
-                -- Assim que renascer, aguarda exatamente 1 segundo antes de teleportar!
+                -- ── 2. PERSONAGEM RENASCEU VIVO: AGUARDA EXATAMENTE 1 SEGUNDO ──
                 if isHalloweenDeadWaiting then
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
                         HalloweenStatsCard.Update("Renasceu! Aguardando 1s para teleportar... ⏱️", Color3.fromRGB(255, 200, 60))
                     end
                     task.wait(1.0)
                     isHalloweenDeadWaiting = false
+                    isInHalloweenMatch = false
                 end
                 
-                if isInsideHalloweenArena() then
+                -- Verifica se o jogador está na arena ou com partida em andamento
+                local inArena = isInsideHalloweenArena() or isInHalloweenMatch
+                
+                -- Verificação de segurança: se retornou ao Lobby (Z < 100) por mais de 4s sem morrer (evento finalizado)
+                if isInHalloweenMatch and hrp.Position.Z < 100 and not isInsideHalloweenArena() then
+                    if lastLobbyCheck == 0 then
+                        lastLobbyCheck = os.clock()
+                    elseif os.clock() - lastLobbyCheck > 4.0 then
+                        isInHalloweenMatch = false
+                        lastLobbyCheck = 0
+                    end
+                else
+                    lastLobbyCheck = 0
+                end
+                
+                if inArena then
+                    -- ── 3. DENTRO DO EVENTO DE HALLOWEEN: LUTA ATÉ O PERSONAGEM MORRER! ──
+                    isInHalloweenMatch = true
                     isEnteringHalloweenPad = false
-                    -- DENTRO DA ARENA: AUTO FARM CANDY
+                    
                     local waveNum = getHalloweenWaveNumber()
                     local waveTxt = waveNum and ("Onda " .. tostring(waveNum)) or "Farmando Candy 🎃"
                     if HalloweenStatsCard and HalloweenStatsCard.Update then
-                        HalloweenStatsCard.Update(string.format("Arena Ativa: %s", waveTxt), Themes.HalloweenOrange)
+                        HalloweenStatsCard.Update(string.format("Evento Ativo: %s", waveTxt), Themes.HalloweenOrange)
                     end
                     
                     local centerPos = getHalloweenArenaCenter()
@@ -2834,16 +2947,21 @@ spawnThread(function()
                         hrp.AssemblyAngularVelocity = Vector3.zero
                     end
                     
-                    -- Fica batendo continuamente (Auto Farm Candy e Inimigos)
+                    -- Bate continuamente (farm de candy e mobs)
                     if RemoteRequestAttack then RemoteRequestAttack:FireServer() end
                     if RemotePlayerClick then RemotePlayerClick:FireServer() end
                     
-                    -- Se a barra "Começar" ainda estiver visível, clica nela
+                    -- Limpa popups de revive residuais se houver
                     handleHalloweenPartyMenu()
+                    
+                    -- REGRA CRÍTICA:
+                    -- NUNCA chama enterHalloweenArena() aqui!
+                    -- NUNCA teleporta de volta para o Pad enquanto estiver vivo!
+                    -- ESPERA O PERSONAGEM MORRER!
                 else
-                    -- FORA DA ARENA: ENTRA NO PAD DE PARTY E INICIA
+                    -- ── 4. FORA DO EVENTO: ENTRA NO PAD E INICIA APENAS 1 VEZ ──
                     halloweenArenaEnteredCFrame = nil
-                    if not isEnteringHalloweenPad then
+                    if not isEnteringHalloweenPad and not isInHalloweenMatch and not isHalloweenDeadWaiting then
                         if HalloweenStatsCard and HalloweenStatsCard.Update then
                             HalloweenStatsCard.Update("Entrando no Pad de Halloween... 🎃", Color3.fromRGB(56, 122, 255))
                         end
@@ -2853,6 +2971,7 @@ spawnThread(function()
                 end
             end)
         else
+            isInHalloweenMatch = false
             isHalloweenDeadWaiting = false
             isEnteringHalloweenPad = false
             halloweenArenaEnteredCFrame = nil
@@ -4371,6 +4490,10 @@ HalloweenStatsCard = createInfoCard(HalloweenTab, "📊 Status do Halloween", "F
 
 HalloweenToggle = createToggle(HalloweenTab, "Ativar Auto Farm Arena de Halloween", Config.AutoHalloweenArena, function(val)
     Config.AutoHalloweenArena = val
+    isInHalloweenMatch = false
+    isHalloweenDeadWaiting = false
+    isEnteringHalloweenPad = false
+    halloweenArenaEnteredCFrame = nil
     if val then
         Config.AutoWin = false
         Config.AutoEndless = false
@@ -4380,8 +4503,6 @@ HalloweenToggle = createToggle(HalloweenTab, "Ativar Auto Farm Arena de Hallowee
             HalloweenStatsCard.Update("Iniciando Auto Farm... 🎃", Themes.HalloweenOrange)
         end
     else
-        isHalloweenDeadWaiting = false
-        halloweenArenaEnteredCFrame = nil
         pcall(function()
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -4650,7 +4771,9 @@ getgenv().SuperHeroEvolutionHubCleanup = function()
     
     IsInBossFight = false
     BossPausedMemory = nil
+    isInHalloweenMatch = false
     isHalloweenDeadWaiting = false
+    isEnteringHalloweenPad = false
     halloweenArenaEnteredCFrame = nil
     if CornerTitlesHUD and CornerTitlesHUD.Parent then pcall(function() CornerTitlesHUD:Destroy() end) end
     if ScreenGui and ScreenGui.Parent then pcall(function() ScreenGui:Destroy() end) end
