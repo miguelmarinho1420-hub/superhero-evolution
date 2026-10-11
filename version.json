@@ -1,6 +1,6 @@
 {
-  "timestamp": 1791661923,
-  "commit": "9efdfb9",
-  "message": "Fix Halloween pad entrance with exact TouchPart interaction and state lock",
-  "date": "2026-10-10 16:52:05"
+  "timestamp": 1791691241,
+  "commit": "ccc299d",
+  "message": "Fix: esperar personagem morrer no evento de Halloween antes de reiniciar e travar estado de partida",
+  "date": "2026-10-11 01:00:43"
 }
