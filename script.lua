@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791700795
+local SCRIPT_VERSION_TIMESTAMP = 1791701076
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -2470,14 +2470,14 @@ function getHalloweenWaveNumber()
     local sg = pgui:FindFirstChild("ScreenGui")
     if sg then
         local top = sg:FindFirstChild("Top")
-        if top then
-            local em = top:FindFirstChild("EndlessMode")
-            local wl = (em and em:FindFirstChild("WaveLabel")) or top:FindFirstChild("WaveLabel", true)
+        local em = top and top:FindFirstChild("EndlessMode")
+        if em and em.Visible then
+            local wl = em:FindFirstChild("WaveLabel")
             if wl and wl:IsA("TextLabel") and wl.Visible and #wl.Text > 0 then
                 local num = wl.Text:match("%d+")
                 if num then return tonumber(num) end
             end
-            for _, d in ipairs(top:GetDescendants()) do
+            for _, d in ipairs(em:GetDescendants()) do
                 if d:IsA("TextLabel") and d.Visible and #d.Text > 0 then
                     local num = d.Text:match("[Oo]nda%s*(%d+)") or d.Text:match("[Ww]ave%s*(%d+)")
                     if num then return tonumber(num) end
@@ -2500,17 +2500,12 @@ function isInsideHalloweenArena()
         return true
     end
     
-    -- 2. Indicador de Onda ativo na UI
-    if getHalloweenWaveNumber() ~= nil then
-        return true
-    end
-    
-    -- 3. Posição no mundo da ArenaInstances (servidor move o jogador para X > 5000 e Z > 5000)
+    -- 2. Posição no mundo da ArenaInstances (servidor move o jogador para X > 5000 e Z > 5000)
     if hrp.Position.X > 5000 and hrp.Position.Z > 5000 then
         return true
     end
     
-    -- 4. Instância ativa de HalloweenArena com jogador dentro
+    -- 3. Instância ativa de HalloweenArena com jogador dentro
     local activeArena = getHalloweenActiveArena()
     if activeArena then
         local c = activeArena:FindFirstChild("Center") or activeArena:FindFirstChild("Spawn")
@@ -2520,6 +2515,11 @@ function isInsideHalloweenArena()
                 return true
             end
         end
+    end
+    
+    -- 4. Indicador de Onda ativo na UI (apenas se estiver fora do lobby)
+    if hrp.Position.X > 1000 and getHalloweenWaveNumber() ~= nil then
+        return true
     end
     
     return false
@@ -2928,20 +2928,22 @@ spawnThread(function()
                     isInHalloweenMatch = false
                 end
                 
-                -- Verifica se o jogador está na arena ou com partida em andamento
-                local inArena = isInsideHalloweenArena() or isInHalloweenMatch
+                -- Verifica se o jogador está na arena física
+                local insideArena = isInsideHalloweenArena()
                 
-                -- Verificação de segurança: se retornou ao Lobby (Z < 100) por mais de 4s sem morrer (evento finalizado)
-                if isInHalloweenMatch and hrp.Position.Z < 100 and not isInsideHalloweenArena() then
+                -- Se o jogador estiver no Lobby (Z < 100) sem estar dentro da arena física
+                if hrp.Position.Z < 100 and not insideArena then
                     if lastLobbyCheck == 0 then
                         lastLobbyCheck = os.clock()
-                    elseif os.clock() - lastLobbyCheck > 4.0 then
+                    elseif os.clock() - lastLobbyCheck > 1.5 then
                         isInHalloweenMatch = false
                         lastLobbyCheck = 0
                     end
                 else
                     lastLobbyCheck = 0
                 end
+                
+                local inArena = insideArena or (isInHalloweenMatch and hrp.Position.X > 5000)
                 
                 if inArena then
                     -- ── 3. DENTRO DO EVENTO DE HALLOWEEN: LUTA ATÉ O PERSONAGEM MORRER! ──
