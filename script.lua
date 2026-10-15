@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1791815475
+local SCRIPT_VERSION_TIMESTAMP = 1792076584
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
@@ -26,6 +26,22 @@ task.spawn(function()
         end
     end)
 end)
+
+-- ==============================================================
+-- DETECÇÃO DE JOGO: STEAL AN EGG (PlaceId: 107778070777162)
+-- ==============================================================
+if game.PlaceId == 107778070777162 then
+    local url = "https://raw.githubusercontent.com/miguelmarinho1420-hub/superhero-evolution/main/steal_egg.lua?t=" .. os.time()
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if ok and res and #res > 50 then
+        local f, err = loadstring(res)
+        if f then
+            return f()
+        else
+            warn("[STEAL AN EGG] Falha ao compilar:", tostring(err))
+        end
+    end
+end
 
 -- Destrói instâncias anteriores para evitar duplicatas
 local function destroyExistingHubs()
