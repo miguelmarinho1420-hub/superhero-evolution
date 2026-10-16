@@ -15,7 +15,7 @@
     ==============================================================
 ]]
 
-local SCRIPT_VERSION_TIMESTAMP = 1792153023
+local SCRIPT_VERSION_TIMESTAMP = 1792153889
 
 -- Conexão em segundo plano com o MCP Bridge (se disponível)
 task.spawn(function()
